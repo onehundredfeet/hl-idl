@@ -41,7 +41,7 @@ abstract class HaxeGenerationTarget {
 
 	public abstract function getTargetCondition():String;
 
-	public abstract function getInterfaceTypeDefinitions(iname:String, attrs:Array<Attrib>, pack:Array<String>, dfields:Array<Field>, isObject : Bool, p:Position):Array<TypeDefinition>;
+	public abstract function getInterfaceTypeDefinitions(iname:String, attrs:Array<Attrib>, pack:Array<String>, dfields:Array<Field>, ikind:InterfaceKind, p:Position):Array<TypeDefinition>;
 
 	function attribsFromField(f:idl.Data.Field):Array<Attrib> {
 		switch(f.kind) {
@@ -164,6 +164,16 @@ abstract class HaxeGenerationTarget {
 		});
 	}
 
+	public function makeStubs( attribs:Array<Attrib> ) : Bool {
+		for (a in attribs) {
+			switch (a) {
+				case AStatic:
+					return false;
+				default:
+			}
+		}
+		return true;
+	}
 	public function needsStubs(attribs:Array<Attrib>):Bool {
 		return true;
 	}
@@ -315,6 +325,7 @@ abstract class HaxeGenerationTarget {
 			}
 		];
 
+		
 		var x = {
 			pos: pos,
 			name: pub ? name : name + args.length,
@@ -442,6 +453,8 @@ abstract class HaxeGenerationTarget {
 		
 		var interfaceCT = iname.asComplexType();
 
+
+		// only constructors at the moment
 		varFields.push({
 			name: haxeName,
 			pos: f.pos.asMacroPos(),

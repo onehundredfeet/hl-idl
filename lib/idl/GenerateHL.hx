@@ -554,8 +554,6 @@ inline static void _idc_copy_array( varray *dst, double *src,  int count) {
 					});
 
 				case DImplements(_):
-				case DAbstract(_, _, _):
-					// ignore
 			}
 		}
 
@@ -1505,7 +1503,7 @@ inline static void _idc_copy_array( varray *dst, double *src,  int count) {
 						}
 					}
 				case DTypeDef(name, attrs, type,dtype):
-				case DEnum(_), DImplements(_), DAbstract(_, _, _):
+				case DEnum(_), DImplements(_):
 			}
 		}
 		add("}"); // extern C

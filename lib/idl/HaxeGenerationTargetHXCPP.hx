@@ -237,6 +237,7 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 	public override function addSimpleMethod(f, iname, haxeName, args, ret:TypeAttr, p):Array<haxe.macro.Field> {
 		var isCStyleCall = false;
 		var isStatic = false;
+		
 		for (a in ret.attr) {
 			switch (a) {
 				case AStatic:
@@ -295,16 +296,71 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 		};
 
 		var external = true;
+		var makeStubs = true;
 
 		var x = {
 			pos: p,
 			name: name,
 			meta: null,
 			access: getFieldAccess(isConstr || isStatic, true, true),
-			kind: embeddedFunction(typical_args, makeType(ret, true), makeSimpleCall(true, iname, redirectName, args, ret, p)),
+			kind: embeddedFunction(typical_args, makeType(ret, true), makeStubs ? makeSimpleCall(true, iname, redirectName, args, ret, p) : null),
 		};
 
 		return [redirect_field, x];
+	}
+
+	public override function makeNativeFieldRaw(iname:String, fname:String, pos:Position, args:Array<FArg>, ret:TypeAttr, pub:Bool, external = true):Field {
+		var name = fname;
+		var isConstr = name == iname || fname == "new";
+
+	
+		if (isConstr) {
+			name = "new";
+			ret = {t: TCustom(iname), attr: []};
+		}
+
+		var expr = if (ret.t == TVoid) {expr: EBlock([]), pos: pos}; else {expr: EReturn(defVal(ret)), pos: pos};
+
+		var access:Array<Access> = getFieldAccess(isConstr || ret.attr.contains(AStatic), pub);
+
+		var fnargs = [
+			for (a in args) {
+				// This pattern is brutallly bad There must be a cleaner way to do this
+				var sub = false;
+				for (aattr in a.t.attr) {
+					switch (aattr) {
+						case ASubstitute(_):
+							sub = true;
+							break;
+						default:
+					}
+				}
+				if (a.t.attr.contains(AReturn) || sub) {
+					continue;
+				}
+				{name: a.name, opt: a.opt, type: makeType(a.t, false)}
+			}
+		];
+
+		for (a in ret.attr) {
+			switch (a) {
+				case AStatic:
+					expr = null;
+				default:
+			}
+		}
+		
+
+		var x = {
+			pos: pos,
+			name: pub ? name : name + args.length,
+			meta: makeNativeMeta(iname, null, name, args.length, ret.attr, pos),
+			access: access,
+			kind: external ? externalFunction(ret.attr, fnargs, makeType(ret, true), expr) : embeddedFunction(fnargs, makeType(ret, true), expr),
+		};
+
+
+		return x;
 	}
 
 	function getMacroBuilderExpr() : Expr{
@@ -317,7 +373,7 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 		return {name: ":build", params: [getMacroBuilderExpr()], pos: p};
 	}
 
-	public function getInterfaceTypeDefinitions(iname:String, attrs:Array<Attrib>, pack:Array<String>, dfields:Array<Field>, isObject:Bool,
+	public function getInterfaceTypeDefinitions(iname:String, attrs:Array<Attrib>, pack:Array<String>, dfields:Array<Field>, ikind:InterfaceKind,
 			p:Position):Array<TypeDefinition> {
 		var abstractNewField:Field = null;
 		var staticNew:Field = null;
@@ -329,7 +385,19 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 		//var proxyName = isObject ? haxeName + "Native" : haxeName;
 		var proxyName = haxeName;
 		var fullProxyName = pack.join(".") + "." + proxyName;
-
+		var isObject = false;
+		var isNamespace = false;
+		var isAbstract = false;
+		var abstractType = switch(ikind) {
+			case IKAbstract(name): isAbstract = true; name;
+			case IKObject: isObject = true; null;
+			case IKNamespace: isNamespace = true; null;
+			default: null;
+		}
+		var abstractCT = null;
+		if (isAbstract) {
+			abstractCT = makeType({t:abstractType, attr:[]}, false);
+		}
 		var proxyCT = fullProxyName.asComplexType();
 		var ptrCT = 'cpp.Star'.asComplexType([TPType(proxyCT)]);
 		var structCT = 'cpp.Struct'.asComplexType([TPType(proxyCT)]);
@@ -447,7 +515,7 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 				// {name: ":buildXml", params:['<include name="${buildXML}"/>'.asConstExpr()], pos: p},
 			],
 			isExtern: true,
-			kind: TDClass(), // TDAbstract(macro :idl.Types.Ref, [], [macro :idl.Types.Ref], [macro :idl.Types.Ref]),
+			kind: isAbstract ? TDAbstract(abstractCT,[], [abstractCT], [abstractCT]) : TDClass(), // TDAbstract(macro :idl.Types.Ref, [], [macro :idl.Types.Ref], [macro :idl.Types.Ref]),
 			fields: dfields,
 		}
 
@@ -456,7 +524,6 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 		var fullConstructPath = fullProxyName + "." + PROXY_NEW_NAME;
 		var proxyConstructExpr = fullConstructPath.asFieldAccess().asCallExpr([], p).asPrivateAccessExpr(p);
 		var newWrapper = (macro this = $proxyConstructExpr).asPublicFunctionField("alloc", [], fullPtrCT, p);
-
 
 		if (isObject) {
 			var ptrFields = statics.concat(staticNew != null ? [staticNew, staticDelete] : []);
@@ -479,7 +546,7 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 				name: PROXY_STRUCT_MAKE,
 				meta: [{name: ":native", params: [${intName}.asConstExpr()], pos: p}],
 				access: [APublic, AStatic],
-				kind: FFun({args: newArgs, ret: shortStructName.asComplexType(), expr: macro {return null;}}),
+				kind: FFun({args: newArgs, ret: shortStructName.asComplexType(), expr: null}), // macro {return null;}
 			};
 
 			if (hasNew) {
@@ -709,7 +776,7 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 					};
 
 					cfields.push(fieldMethod);
-					trace('method ${fname} ${args} ${ret}');
+					//trace('method ${fname} ${args} ${ret}');
 				default:
 					throw 'Unsupported field kind ${f.kind}';
 			}

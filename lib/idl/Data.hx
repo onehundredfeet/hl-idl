@@ -17,9 +17,14 @@ typedef Field = {
 	var kind : FieldKind;
 	var pos : Position;
 }
+
+enum InterfaceKind {
+	IKAbstract(underlaying:Type);
+	IKObject;
+	IKNamespace;
+}
 enum DefinitionKind {
-	DAbstract( name : String, attrs : Array<Attrib>, type : String );
-	DInterface( name : String, attrs : Array<Attrib>, fields : Array<Field>, isObject : Bool );
+	DInterface( name : String, attrs : Array<Attrib>, fields : Array<Field>, kind : InterfaceKind );
 	DInclude( name : String );
 	DImplements( type : String, interfaceName : String );
 	DEnum( name : String, attrs : Array<Attrib>, values : Array<String>, fields : Array<Field> );

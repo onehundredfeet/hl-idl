@@ -610,7 +610,7 @@ class HNativeBuffer {
 				//					add('DEFINE_PRIM(_I32, ${name}_fromIndex1, _I32);');
 				case DTypeDef(name, attrs, type, dtype):
 				case DImplements(_):
-					case DAbstract(_, _, _):
+					
 			}
 		}
 
@@ -1613,7 +1613,7 @@ class HNativeBuffer {
 					}
 				case DTypeDef(name, attrs, type, dtype):
 				case DEnum(_), DImplements(_):
-					case DAbstract(_, _, _):
+			
 			}
 		}
 		add("}"); // extern C

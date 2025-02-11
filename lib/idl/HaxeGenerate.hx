@@ -75,9 +75,7 @@ class HaxeGenerate {
 			case DTypeDef(name, _, _, _):
 				tp = {pack: pack, name: name};
 				_typeInfos[name] = new HaxeGenerationTypeInfo(tp, null, d.kind);
-			case DAbstract(name, _, _):
-				tp = {pack: pack, name: name};
-				_typeInfos[name] = new HaxeGenerationTypeInfo(tp, null, d.kind);
+
 	
 			default:
 		}
@@ -174,10 +172,14 @@ class HaxeGenerate {
 		switch (d.kind) {
 			case DInclude(_):
 
-			case DInterface(iname, attrs, fields, isObject):
+			case DInterface(iname, attrs, fields, ikind):
 				var dfields:Array<Field> = [];
 				var forceCamel = attrs.indexOf(AForceCamelCase) >= 0;
 				var variants = new Map(); 
+				var isObject = ikind == InterfaceKind.IKObject;
+				var isNamespace = ikind == InterfaceKind.IKNamespace;
+				var isAbstract = ikind.match(InterfaceKind.IKAbstract(_));
+
 				function getVariants(name:String) : Array<MethodVariant> {
 					if (variants.exists(name))
 						return null;
@@ -202,7 +204,7 @@ class HaxeGenerate {
 							if (vars == null)
 								continue;
 					
-							if (!isObject) {
+							if (isNamespace) {
 								if (!ret.attr.contains(AStatic)) {
 									ret.attr.push(AStatic);
 								}
@@ -247,7 +249,7 @@ class HaxeGenerate {
 					dfields.push(makeNativeField(iname, "delete", {name: "delete", pos: null, kind: null}, [], {t: TVoid, attr: []}, true));
 				}
 
-				var tds = _currentTarget.getInterfaceTypeDefinitions(iname, attrs, pack, dfields, isObject, p);
+				var tds = _currentTarget.getInterfaceTypeDefinitions(iname, attrs, pack, dfields, ikind, p);
 				var tp:TypePath = {
 					pack: pack,
 					name: iname
@@ -350,7 +352,6 @@ class HaxeGenerate {
 			_typeInfos[name] = new HaxeGenerationTypeInfo(enumInfo.path, enumInfo.def, d.kind);
 
 			case DTypeDef(name, attrs, type, dtype):
-			case DAbstract(name, attrs, type):
 				_currentTarget.makeAbstract(name, attrs, type, p);
 				//_typeInfos[name] = new HaxeGenerationTypeInfo(tp, tds[0], d.kind);
 		}

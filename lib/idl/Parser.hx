@@ -69,8 +69,15 @@ class Parser {
 
 		var tok = null;
 		switch (tok = token()) {
-			case TId("object"), TId("namespace"):
+			case TId("object"), TId("namespace"), TId("abstract"):
 				var name = ident();
+				var isAbstract = tok.match(TId("abstract"));
+				var underlayingType = null;
+				if (isAbstract) {
+					ensure(TPOpen);
+					underlayingType = ident();
+					ensure(TPClose);
+				}
 				ensure(TBrOpen);
 				var fields = [];
 				while (true) {
@@ -81,7 +88,13 @@ class Parser {
 					fields.push(parseField());
 				}
 				ensure(TSemicolon);
-				return {pos: makePos(pmin), kind: DInterface(name, attr, fields, tok.match(TId("object")))};
+				var ik = switch(tok) {
+					case TId("object"): InterfaceKind.IKObject;
+					case TId("namespace"): InterfaceKind.IKNamespace;
+					case TId("abstract"): InterfaceKind.IKAbstract(strToType(underlayingType));
+					default:throw "Unknown interface kind";
+				};
+				return {pos: makePos(pmin), kind: DInterface(name, attr, fields, ik)};
 			case TId("enum"):
 				var name = ident();
 				ensure(TBrOpen);
@@ -131,11 +144,6 @@ class Parser {
 				}
 				typeDefs[name] = typeStr;
 				return {pos: makePos(pmin), kind: DTypeDef(name, attr, typeStr, strToType(typeStr))};
-			case TId("abstract"):
-				var name = ident();
-				var type = ident();
-				ensure(TSemicolon);
-				return {pos: makePos(pmin), kind: DAbstract(name, attr, type)};
 			case TId("include"):
 				var name = ident();
 				ensure(TSemicolon);

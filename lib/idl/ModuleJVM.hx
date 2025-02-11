@@ -654,7 +654,6 @@ class ModuleJVM extends ModuleBase {
 			typeNames[name] = enumTP;
 			types.push(enumT);
 		case DTypeDef(name, attrs, type, dtype):
-			case DAbstract(name, _, _):
 
 		}
 	}
