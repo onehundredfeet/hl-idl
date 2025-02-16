@@ -723,6 +723,15 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 			access: [APublic,  AInline],
 		};
 
+		var toInt = {
+			pos: p,
+			name: "toInt",
+			kind: FFun({args: [], ret: macro :Int, expr: macro return this}),
+			meta: [],
+			access: [APublic,  AInline],
+		};
+
+
 		// //		Add Int Conversion
 		// 		var ta:TypeAttr = {t: TInt, attr: [AStatic]};
 		// 		var fn : Function = {args : [{name: "index", opt: false, t: {t: TInt, attr: []}}], ret: {t: TEnum(name), attr: []}, expr: null}
@@ -793,7 +802,7 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 			],
 			kind: TDAbstract(enumClass ? implName.asComplexType(): macro :Int, [AbEnum]), // implName.asComplexType()
 			isExtern: true,
-			fields: cfields.concat([toString]),
+			fields: cfields.concat([toString, toInt]),
 		};
 
 		/*
