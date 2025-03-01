@@ -643,7 +643,7 @@ class CMakeGenerateHXCPP {
 
 				if (cf.nodeName == 'findlib') {
 					trace('Adding findlib: ${cf.get('value')} at ${cf.get('dir')}');
-					findLibs.push({name: cf.get('value'), dir: cf.get('dir'), link: cf.get('link') == 'true'});
+					findLibs.push({name: cf.get('value'), dir: cf.get('dir'), link: cf.get('link') == 'true', raw:cf.get('raw') == 'true'});
 					continue;
 				}
 
@@ -736,28 +736,50 @@ class CMakeGenerateHXCPP {
 		if (findLibs.length > 0) {
 			addLine('');
 			for (fl in findLibs) {
-				trace('Adding findlib: ${fl.name} at ${fl.dir}');
 				var rdir = resolvePath(fl.dir);
 				if (rdir == null) {
 					trace('Cannot resolve dir: ${fl.dir}');
 					continue;
 				}
 				var adir = FileSystem.absolutePath(rdir);
-				addLine('set (${fl.name}_DIR ${adir})');
-				addLine('find_package(${fl.name} REQUIRED)');
+				if (fl.raw) {
+					cppLibDirs.push(adir);
+				} else {
+					trace('Adding findlib: ${fl.name} at ${fl.dir}');
+					addLine('set (${fl.name}_DIR ${adir})');
+					addLine('find_package(${fl.name} REQUIRED)');
+				}
 			}
 			addLine('');
 
 			addLine('target_link_libraries(${outputName}');
 			for (fl in findLibs) {
-				if (fl.link)
-					addLine('\t${fl.name}::${fl.name}');
+				if (fl.link) {
+					if (fl.raw) {
+						addLine('\t${fl.name}');
+					} else {
+						addLine('\t${fl.name}::${fl.name}');
+					}
+				}
 			}
 			for (ll in linkLibs) {
 				addLine('\t${ll}');
 			}
 			addLine(')');
 		}
+
+		addLine ('target_link_directories(${outputName} PRIVATE');
+		for (d in cppLibDirs) {
+			var rd = resolvePath(d);
+			if (FileSystem.exists(rd)) {
+				var absDir = FileSystem.absolutePath(rd);
+				trace('Adding library dir: ${absDir}');
+				addLine('\t${absDir}');
+			} else {
+				trace('Library dir not found: ${rd}');
+			}
+		}
+		addLine(')');
 
 		addLine('target_include_directories(${outputName} PRIVATE');
 

@@ -516,7 +516,7 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 			meta: [
 				{name: ":native", params: [intName.asConstExpr()], pos: p},
 				{name: ":structAccess", params: null, pos: p},
-				{name: ":unreflective", params: null, pos: p},
+//				{name: ":unreflective", params: null, pos: p},
 				getMacroBuilderMeta(p),
 				// {name: ":buildXml", params:['<include name="${buildXML}"/>'.asConstExpr()], pos: p},
 			],
@@ -814,7 +814,7 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 			name: makeName(name),
 			meta: [
 				{name: ":native", params: [namespaceName.asConstExpr()], pos: p},
-				{name: ":unreflective", params: null, pos: p},
+//				{name: ":unreflective", params: null, pos: p},
 				{name: ":notNull", params: null, pos: p},
 				getMacroBuilderMeta(p),
 			],
@@ -842,7 +842,7 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 				name: implName,
 				meta: [
 					{name: ":native", params: [namespaceName.asConstExpr()], pos: p},
-					{name: ":unreflective", params: null, pos: p},
+//					{name: ":unreflective", params: null, pos: p},
 					{name: ":notNull", params: null, pos: p},
 					getMacroBuilderMeta(p),
 					//					@:scalar
