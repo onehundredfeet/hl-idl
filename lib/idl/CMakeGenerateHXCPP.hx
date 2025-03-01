@@ -545,7 +545,7 @@ class CMakeGenerateHXCPP {
 			var id = e.get('id');
 			var block = CompileBlock.fromXml(e);
 			if (block == null) {
-				//				trace('Skipping block ${id}');
+								trace('Skipping block ${id}');
 				continue;
 			}
 			hxcppFileBlocks.set(id, block);

@@ -2,6 +2,7 @@ package idl;
 
 import idl.Data;
 import idl.Options;
+using StringTools;
 
 private enum Token {
 	TEof;
@@ -130,6 +131,7 @@ class Parser {
 				var name = ident();
 				var typeStr = "";
 				var first = true;
+				var pointer = false;
 				while (!maybe(TSemicolon)) {
 					if (!first)
 						typeStr = typeStr + " ";
@@ -141,6 +143,8 @@ class Parser {
 						default:
 							throw("Unknown type " + tk);
 					}
+					if (maybe(TAsterisk))
+						typeStr = typeStr + "*";
 				}
 				typeDefs[name] = typeStr;
 				return {pos: makePos(pmin), kind: DTypeDef(name, attr, typeStr, strToType(typeStr))};
@@ -335,7 +339,13 @@ class Parser {
 	}
 
 	function strToType(id:String) {
-		return switch (id) {
+
+		var pointer = id.endsWith("*");
+		if (pointer) {
+			id = id.substr(0, id.length - 1);
+		}
+
+		var x = switch (id) {
 			case "void": TVoid;
 			case "byte", "uchar", "char": TChar;
 			case "float": TFloat;
@@ -367,6 +377,11 @@ class Parser {
 			default:
 				TCustom(id);
 		};
+
+		if (pointer) {
+			return TPointer(x);
+		}
+		return x;
 	}
 
 	function type(attrs:Array<Attrib> = null):Type {

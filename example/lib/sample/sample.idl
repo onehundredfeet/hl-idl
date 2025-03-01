@@ -1,10 +1,10 @@
 enum SampleEnum {
-	"SE_0",
-	"SE_1",
-	"SE_2"
+	SE_0,
+	SE_1,
+	SE_2
 };
 
-interface SampleA {
+object SampleA {
   attribute float a;
   attribute SampleEnum et;
   SampleA new();
@@ -14,13 +14,13 @@ interface SampleA {
 };
 
 [Internal="SampleBStruct"]
-interface SampleB {
+object SampleB {
 attribute double b;
 
 [CObject,Internal="SampleBStruct_print"] void print();
 };
 
-interface Sample {
+object Sample {
 	Sample new();
 	attribute long x;
 	attribute long y;

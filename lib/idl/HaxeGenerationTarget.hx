@@ -10,11 +10,11 @@ typedef MethodVariant = {args : Array<FArg>, ret : TypeAttr, pos: idl.Data.Posit
 
 
 class HaxeGenerationTypeInfo {
-	public final path:haxe.macro.TypePath;
-	public final defn:haxe.macro.TypeDefinition;
+	public final path:haxe.macro.Expr.TypePath;
+	public final defn:haxe.macro.Expr.TypeDefinition;
 	public final kind:idl.Data.DefinitionKind;
 
-	public function new(path:haxe.macro.TypePath, defn:haxe.macro.TypeDefinition, kind:idl.Data.DefinitionKind) {
+	public function new(path:haxe.macro.Expr.TypePath, defn:haxe.macro.Expr.TypeDefinition, kind:idl.Data.DefinitionKind) {
 		this.path = path;
 		this.defn = defn;
 		this.kind = kind;
@@ -41,7 +41,7 @@ abstract class HaxeGenerationTarget {
 
 	public abstract function getTargetCondition():String;
 
-	public abstract function getInterfaceTypeDefinitions(iname:String, attrs:Array<Attrib>, pack:Array<String>, dfields:Array<Field>, ikind:InterfaceKind, p:Position):Array<TypeDefinition>;
+	public abstract function getInterfaceTypeDefinitions(iname:String, attrs:Array<Attrib>, pack:Array<String>, dfields:Array<haxe.macro.Expr.Field>, ikind:InterfaceKind, p:Position):Array<TypeDefinition>;
 
 	function attribsFromField(f:idl.Data.Field):Array<Attrib> {
 		switch(f.kind) {
@@ -51,7 +51,7 @@ abstract class HaxeGenerationTarget {
 		}
 		return [];
 	}
-	public function addAttribute(iname:String, haxeName:String, f:idl.Data.Field, t:TypeAttr, p:Position):Array<haxe.macro.Field> {
+	public function addAttribute(iname:String, haxeName:String, f:idl.Data.Field, t:TypeAttr, p:Position):Array<haxe.macro.Expr.Field> {
 		var attribFields:Array<Field> = [];
 		var attribs = attribsFromField(f);
 
@@ -231,7 +231,7 @@ abstract class HaxeGenerationTarget {
 		return [abstractDefn];
 	}
 
-	public function makeEnum(name:String, attrs:Array<Attrib>, values:Array<String>, fields:Array<idl.Data.Field>, p:haxe.macro.Expr.Position) : Array<{def: haxe.macro.TypeDefinition, path: haxe.macro.TypePath}> {
+	public function makeEnum(name:String, attrs:Array<Attrib>, values:Array<String>, fields:Array<idl.Data.Field>, p:haxe.macro.Expr.Position) : Array<{def: haxe.macro.Expr.TypeDefinition, path: haxe.macro.Expr.TypePath}> {
 		var index = 0;
 		function cleanEnum(v:String):String {
 			return v.replace(":", "_");
@@ -354,7 +354,7 @@ abstract class HaxeGenerationTarget {
 	public function addSimpleMethod(f, iname, haxeName, args, ret, p) {
 		return [makeNativeField(iname, haxeName, f, args, ret, true)];	
 	}
-	public function addInterfaceMethod(f:idl.Data.Field, iname:String, haxeName:String, variants: Array<MethodVariant>, p:Position):Array<haxe.macro.Field> {
+	public function addInterfaceMethod(f:idl.Data.Field, iname:String, haxeName:String, variants: Array<MethodVariant>, p:Position):Array<haxe.macro.Expr.Field> {
 //		trace('addInterfaceMethod ${iname} ${haxeName} ${variants} ${p}');
 		var varFields = [];
 		// create dispatching code
@@ -465,7 +465,7 @@ abstract class HaxeGenerationTarget {
 		return varFields;
 	}
 
-	public function makeConstructor(f:idl.Data.Field, iname:String, haxeName:String, variants: Array<MethodVariant>, p:Position):Array<haxe.macro.Field> {
+	public function makeConstructor(f:idl.Data.Field, iname:String, haxeName:String, variants: Array<MethodVariant>, p:Position):Array<haxe.macro.Expr.Field> {
 		return addInterfaceMethod(f, iname, haxeName, variants, p);
 	}
 

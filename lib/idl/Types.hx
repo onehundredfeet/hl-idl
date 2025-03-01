@@ -12,5 +12,33 @@ abstract Any(Dynamic) {}
 abstract VoidPtr(Dynamic) {}
 abstract NativePtr<T>(Dynamic) {}
 
+abstract ReferencableInt64(haxe.Int64) to haxe.Int64 from haxe.Int64{
+    public function new(v : haxe.Int64) {
+        this = v;
+    }
+    #if cpp
+    @:to
+    public inline function toRef() {
+        return cpp.Pointer.addressOf(this);
+    }
 
+    #end
+}
+
+
+abstract ReferencableInt(Int) to Int from Int{
+    public function new(v : Int) {
+        this = v;
+    }
+    public inline function asInt() : Int{
+        return this;
+    }
+    #if cpp
+    @:to
+    public function toRef() {
+        return cpp.Pointer.addressOf(this);
+    }
+
+    #end
+}
 #end
