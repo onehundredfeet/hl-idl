@@ -246,7 +246,7 @@ class HaxeGenerate {
 				}
 
 				if (isObject && attrs.indexOf(ANoDelete) < 0) {
-					dfields.push(makeNativeField(iname, "delete", {name: "delete", pos: null, kind: null}, [], {t: TVoid, attr: []}, true));
+					//dfields.push(makeNativeField(iname, "delete", {name: "delete", pos: null, kind: null}, [], {t: TVoid, attr: []}, true));
 				}
 
 				var tds = _currentTarget.getInterfaceTypeDefinitions(iname, attrs, pack, dfields, ikind, p);

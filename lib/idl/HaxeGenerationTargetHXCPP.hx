@@ -475,8 +475,8 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 				pos: p,
 				name: PROXY_DELETE_NAME,
 				meta: [{name: ":native", params: ['delete '.asConstExpr()], pos: p}],
-				access: [APublic],
-				kind: FFun({args: [], ret: macro :Void, expr: macro {}}),
+				access: [APublic, AExtern],
+				kind: FFun({args: [], ret: macro :Void, expr: null}),
 			};
 		}
 		// var e : MetadataEntry;
