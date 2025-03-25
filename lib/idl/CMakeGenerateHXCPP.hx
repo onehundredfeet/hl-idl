@@ -315,7 +315,9 @@ class CMakeGenerateHXCPP {
 	static function resolvePath(path:String, required = true) {
 		path = resolveString(path);
 		if (FileSystem.exists(path)) {
+			#if (cmake_idl_verbose > 1)
 			trace('Found path: ${path}');
+			#end
 			return path;
 		}
 		//        trace('Resolving path: ${path}');
@@ -325,7 +327,9 @@ class CMakeGenerateHXCPP {
 		if (path.startsWith('/'))
 			return path;
 		// try prepending hxcpp dir
+		#if (cmake_idl_verbose > 2)
 		trace('defaulting ${path}');
+		#end
 		path = '${_hxCppDir}/${path}';
 		if (FileSystem.exists(path))
 			return path;
@@ -348,8 +352,9 @@ class CMakeGenerateHXCPP {
 
 	static function getFlatXML(path:String, included:Array<String>):Array<Xml> {
 		var rpath = resolvePath(path);
-
+		#if (cmake_idl_verbose > 1)
 		trace('--> Processing ${rpath} XML');
+		#end
 		var xmlStr = File.getContent(rpath);
 		var xmlRoot = Xml.parse(xmlStr).firstElement();
 		var elements = [for (e in xmlRoot.elements()) e];
@@ -465,7 +470,9 @@ class CMakeGenerateHXCPP {
 		_tags.set('static', true);
 		_tags.set('gc', true);
 		_tags.set('hxstring', true);
+		#if (cmake_idl_verbose > 1)
 		trace('Build dir: ${_absBuildDir} | ${_relBuildDir}');
+		#end
 
 		var includeDirs = new Array<String>();
 		var libDirs = new Array<String>();
@@ -499,9 +506,11 @@ class CMakeGenerateHXCPP {
 			_defines.set(key, value);
 		}
 
+		#if (cmake_idl_verbose > 1)
 		for (o in _defines.keyValueIterator()) {
 			trace('${o.key} = ${o.value}');
 		}
+		#else
 
 		// var xmlStr = File.getContent('${outDir}/Build.xml');
 
@@ -519,7 +528,9 @@ class CMakeGenerateHXCPP {
 		if (_hxCppDir.endsWith('/')) {
 			_hxCppDir = _hxCppDir.substring(0, _hxCppDir.length - 1);
 		}
+		#if (cmake_idl_verbose > 1)
 		trace('hxcpp dir: ${_hxCppDir}');
+		#end
 
 		//        var xml = getFlatXML('${hxCppDir}/toolchain/setup.xml');  // not very meaningful
 		var includes = [];
@@ -535,7 +546,9 @@ class CMakeGenerateHXCPP {
 			if (NodeCriteria.matchNode(s)) {
 				var name = s.get('name');
 				var value = s.get('value');
+				#if (cmake_idl_verbose > 1)
 				trace('Setting ${name} = ${value}');
+				#end
 				_defines.set(name, value);
 			}
 		}
@@ -545,7 +558,9 @@ class CMakeGenerateHXCPP {
 			var id = e.get('id');
 			var block = CompileBlock.fromXml(e);
 			if (block == null) {
-								trace('Skipping block ${id}');
+				#if (cmake_idl_verbose > 1)
+				trace('Skipping block ${id}');
+				#end
 				continue;
 			}
 			hxcppFileBlocks.set(id, block);
@@ -642,7 +657,9 @@ class CMakeGenerateHXCPP {
 				}
 
 				if (cf.nodeName == 'findlib') {
+					#if (cmake_idl_verbose > 1)
 					trace('Adding findlib: ${cf.get('value')} at ${cf.get('dir')}');
+					#end
 					findLibs.push({name: cf.get('value'), dir: cf.get('dir'), link: cf.get('link') == 'true', raw:cf.get('raw') == 'true'});
 					continue;
 				}
@@ -650,8 +667,9 @@ class CMakeGenerateHXCPP {
 				if (cf.nodeName != 'compilerflag' && cf.nodeName != 'flag' && cf.nodeName != 'cppflag') {
 					continue;
 				}
-
+				#if (cmake_idl_verbose > 1)
 				trace('Adding flag: ${cf.get('value')}');
+				#end
 				addFlag(cf);
 			}
 		}
@@ -692,12 +710,13 @@ class CMakeGenerateHXCPP {
 			miscCompilerFlags.push(resolveString("-arch ${HXCPP_ARCH}"));
 		}
 
+		#if (cmake_idl_verbose > 1)
 		trace('Include dirs: ${cppIncludeDirs.join(',')}');
 		trace('Lib dirs: ${cppLibDirs.join(',')}');
 		trace('Misc compiler flags: ${miscCompilerFlags.join(',')}');
 		trace('Compiler warnings: ${cppWarnings.join(',')}');
 		trace('Compiler defines: ${cppDefines.join(',')}');
-
+		#end
 		var outputName = resolveString(haxeTarget.root.get('output'), true);
 		addLine('cmake_minimum_required(VERSION 3.20)');
 		addLine('\n');
@@ -713,7 +732,9 @@ class CMakeGenerateHXCPP {
 				continue;
 			}
 
+			#if (cmake_idl_verbose > 1)
 			trace('Looking for files in ${f.get('id')}');
+			#end
 			var block = hxcppFileBlocks.get(f.get('id'));
 			if (block == null) {
 				continue;
@@ -745,7 +766,9 @@ class CMakeGenerateHXCPP {
 				if (fl.raw) {
 					cppLibDirs.push(adir);
 				} else {
+					#if (cmake_idl_verbose > 1)
 					trace('Adding findlib: ${fl.name} at ${fl.dir}');
+					#end
 					addLine('set (${fl.name}_DIR ${adir})');
 					addLine('find_package(${fl.name} REQUIRED)');
 				}
@@ -773,7 +796,9 @@ class CMakeGenerateHXCPP {
 			var rd = resolvePath(d);
 			if (FileSystem.exists(rd)) {
 				var absDir = FileSystem.absolutePath(rd);
+				#if (cmake_idl_verbose > 1)
 				trace('Adding library dir: ${absDir}');
+				#end
 				addLine('\t${absDir}');
 			} else {
 				trace('Library dir not found: ${rd}');
@@ -788,7 +813,9 @@ class CMakeGenerateHXCPP {
 			var rd = resolvePath(d);
 			if (FileSystem.exists(rd)) {
 				var absDir = FileSystem.absolutePath(rd);
+				#if (cmake_idl_verbose > 1)
 				trace('Adding include dir: ${absDir}');
+				#end
 				addLine('\t${absDir}');
 			} else {
 				trace('Include dir not found: ${rd}');
