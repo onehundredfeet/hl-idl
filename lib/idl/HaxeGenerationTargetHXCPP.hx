@@ -224,8 +224,10 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 				{expr: ECast({expr: EConst(CIdent(args[i].name)), pos: p}, null), pos: p}
 		];
 
+		var thisExpr = macro cpp.Pointer.addressOf(this);
+		//EConst(CIdent("this"))
 		var e:Expr = {
-			expr: ECall(ident, (self ? [{expr: EConst(CIdent("this")), pos: p}] : []).concat(typical_args)),
+			expr: ECall(ident, (self ? [{expr: thisExpr.expr, pos: p}] : []).concat(typical_args)),
 			pos: p
 		};
 		if (ret.t != TVoid)
@@ -403,11 +405,13 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 			abstractCT = makeType({t: abstractType, attr: []}, false);
 		}
 		var proxyCT = fullProxyName.asComplexType();
-		var ptrCT = 'cpp.Star'.asComplexType([TPType(proxyCT)]);
+		var ptrCT = 'cpp.Pointer'.asComplexType([TPType(proxyCT)]);
 		var structCT = 'cpp.Struct'.asComplexType([TPType(proxyCT)]);
 		var shortPtrName = haxeName + "Ptr";
-		var shortStructName = haxeName; // + "Struct";
+		var shortRefName = haxeName + "Ref";
+		var shortStructName = haxeName + "Struct";
 		var fullPtrName = pack.join(".") + "." + shortPtrName;
+		var fullRefName = pack.join(".") + "." + shortRefName;
 		var fullStructName = pack.join(".") + "." + shortStructName;
 		var fullPtrCT = fullPtrName.asComplexType();
 
@@ -596,7 +600,88 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 				fields: [] // abstractNewField != null ? [newWrapper] : [],
 			};
 
-			return [classNativeDefn, ptrDefn]; // , //structDefn]; // abstractDefn
+			var refDefn = {
+				pos: p,
+				pack: pack,
+				name: shortRefName,
+				meta: [
+					{name: ":native", params: [('cpp.Reference< ${intName} >').asConstExpr()], pos: p},
+//					{name: ":structAccess", params: null, pos: p},
+	//				{name: ":unreflective", params: null, pos: p},
+//					getMacroBuilderMeta(p),
+					// {name: ":buildXml", params:['<include name="${buildXML}"/>'.asConstExpr()], pos: p},
+				],
+				isExtern: true,
+				kind: isAbstract ? TDAbstract(abstractCT, [], [abstractCT],
+					[abstractCT]) : TDClass(fullProxyName.asTypePath()), // TDAbstract(macro :idl.Types.Ref, [], [macro :idl.Types.Ref], [macro :idl.Types.Ref]),
+				fields: [],
+			};
+
+			var structDefn = {
+				pos: p,
+				pack: pack,
+				name: shortStructName,
+				meta: [
+					{name: ":native", params: [('cpp.Struct< ${intName} >').asConstExpr()], pos: p},
+//					{name: ":structAccess", params: null, pos: p},
+	//				{name: ":unreflective", params: null, pos: p},
+//					getMacroBuilderMeta(p),
+					// {name: ":buildXml", params:['<include name="${buildXML}"/>'.asConstExpr()], pos: p},
+				],
+				isExtern: true,
+				kind: isAbstract ? TDAbstract(abstractCT, [], [abstractCT],
+					[abstractCT]) : TDClass(fullRefName.asTypePath()), // TDAbstract(macro :idl.Types.Ref, [], [macro :idl.Types.Ref], [macro :idl.Types.Ref]),
+				fields: [],
+			};
+			
+			return [classNativeDefn, ptrDefn, refDefn, structDefn]; 
+			/*
+package externs;
+
+import cpp.UInt8;
+import cpp.Pointer;
+
+@:include("./../lib/LibInclude.h")
+@:sourceFile("./../lib/RGB.cpp")
+@:native("RGB")
+extern class RGB
+{
+   public var r:UInt8;
+   public var g:UInt8;
+   public var b:UInt8;
+
+   public function getLuma():Int;
+   public function toInt():Int;
+
+   @:native("new RGB")
+   public static function create(r:Int, g:Int, b:Int):Pointer<RGB>;
+
+   @:native("~RGB")
+   public function deleteMe():Void;
+}
+
+
+
+// By extending RGB we keep the same API as far as haxe is concerned, but store the data (not pointer)
+//  The native Reference class knows how to take the reference to the structure
+@:native("cpp.Reference<RGB>")
+extern class RGBRef extends RGB
+{
+}
+
+
+
+// By extending RGBRef, we can keep the same api, 
+//  rather than a pointer
+@:native("cpp.Struct<RGB>")
+extern class RGBStruct extends RGBRef
+{
+}
+
+
+
+
+			*/
 		}
 		return [classNativeDefn];
 	}
