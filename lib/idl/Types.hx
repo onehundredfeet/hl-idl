@@ -42,3 +42,31 @@ abstract ReferencableInt(Int) to Int from Int{
     #end
 }
 #end
+
+#if cpp
+
+// class StructArray<T> {
+    
+//     var ptr:cpp.Pointer<T>;
+//     var array:Array<T>;
+
+//     public inline function new(capacity:Int) {
+//         this.size = 0;
+//         this.capacity = capacity;
+//         this.array = cpp.NativeArray.create(capacity);
+//         this.ptr = cpp.Pointer.ofArray(this.array);
+//     }
+//     @:op([]) public inline function get(index:Int):T {
+//         return this.data[index];
+//     }
+//     @:op([]) public inline function set(index:Int, value:T):Void {
+//         this.data[index] = value;
+//     }
+
+//     public var length(get,never):Int;
+//     public inline function get_length():Int {
+//         return this.size;
+//     }
+// }
+
+#end

@@ -102,6 +102,7 @@ enum Attrib {
 	AEmbed;
 	AClass;
 	AStatic;
+	AAllowArray;
 	AInclude( name : String );
 	AVirtual;
 	ASynthetic;

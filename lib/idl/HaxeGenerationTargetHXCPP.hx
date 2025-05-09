@@ -1,5 +1,7 @@
 package idl;
 
+import haxe.io.UInt8Array;
+import haxe.macro.Printer;
 import idl.Data;
 import haxe.macro.Expr;
 
@@ -12,6 +14,7 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 	static final PROXY_NEW_NAME = "alloc";
 	static final PROXY_DELETE_NAME = "free";
 	static final PROXY_STRUCT_MAKE = "make";
+	static final REDIRECT_PREFIX = "_r_";
 
 	function getTargetCondition():String {
 		return "#if cpp";
@@ -224,8 +227,8 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 				{expr: ECast({expr: EConst(CIdent(args[i].name)), pos: p}, null), pos: p}
 		];
 
-		var thisExpr = macro cpp.Pointer.addressOf(this);
-		//EConst(CIdent("this"))
+		var thisExpr = macro asPtr();
+		// EConst(CIdent("this"))
 		var e:Expr = {
 			expr: ECall(ident, (self ? [{expr: thisExpr.expr, pos: p}] : []).concat(typical_args)),
 			pos: p
@@ -253,7 +256,7 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 			return [makeNativeField(iname, haxeName, f, args, ret, true)];
 		}
 
-		var redirectName = '_r_' + haxeName;
+		var redirectName = REDIRECT_PREFIX + haxeName;
 		// var redirectField = makeNativeField(iname, redirectName, f, args, ret, true);
 
 		var name = haxeName;
@@ -405,16 +408,25 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 			abstractCT = makeType({t: abstractType, attr: []}, false);
 		}
 		var proxyCT = fullProxyName.asComplexType();
+		var proxyCP = fullProxyName.asTypePath();
 		var ptrCT = 'cpp.Pointer'.asComplexType([TPType(proxyCT)]);
 		var structCT = 'cpp.Struct'.asComplexType([TPType(proxyCT)]);
 		var shortPtrName = haxeName + "Ptr";
 		var shortRefName = haxeName + "Ref";
 		var shortStructName = haxeName + "Struct";
+		var arrayDataName = haxeName + "ArrayData";
+		var arrayName = haxeName + "Array";
+		var arrayCT = arrayName.asComplexType();
+		var arrayDataCT = arrayDataName.asComplexType();
+		var arrayDataCP = arrayDataName.asTypePath();
+		var arrayCP = arrayName.asTypePath();
+
 		var fullPtrName = pack.join(".") + "." + shortPtrName;
 		var fullRefName = pack.join(".") + "." + shortRefName;
 		var fullStructName = pack.join(".") + "." + shortStructName;
 		var fullPtrCT = fullPtrName.asComplexType();
 
+		var allowArray = false;
 		for (a in attrs)
 			switch (a) {
 				// case APrefix(name): prefix = name;
@@ -423,6 +435,8 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 				// case ANew(name): newName = name;
 				// case ADelete(name): deleteName = name;
 				// case ADestruct(expression): destructExpr = expression;
+				case AAllowArray:
+					allowArray = true;
 				default:
 			}
 
@@ -469,7 +483,7 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 				case FFun(f):
 					var classNameExpr = iname.asComplexType();
 					f.ret = fullPtrCT;
-					f.expr = null; //macro return null;
+					f.expr = null; // macro return null;
 					newArgs = f.args;
 				default:
 					throw "Unsupported kind for new field";
@@ -513,6 +527,48 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 		var includes = opts.includes.map((x) -> {name: ":include", params: [x.asConstExpr()], pos: p});
 		var buildXML = "${" + opts.packageName.toUpperCase() + "_IDL_DIR}/" + opts.packageName + ".xml";
 
+		var objFields = null;
+		if (isObject) {
+			var asPtrFieldClass:Field = {
+				pos: p,
+				name: "asPtr",
+				meta: [],
+				access: [APublic, AInline],
+				kind: FFun({args: [], ret: fullPtrCT, expr: macro return cpp.Pointer.addressOf(this)}),
+			};
+			objFields = [asPtrFieldClass];
+
+			if (hasNew) {
+				var structMake = {
+					pos: p,
+					name: PROXY_STRUCT_MAKE,
+					meta: [{name: ":native", params: [${intName}.asConstExpr()], pos: p}],
+					access: [APublic, AStatic],
+					kind: FFun({args: newArgs, ret: fullProxyName.asComplexType(), expr: null}), // macro {return null;}
+				};
+
+				objFields.push(structMake);
+			}
+
+			if (allowArray) {
+				var arrayRet = macro :Array<$proxyCT>;
+				var arrayAlloc = {
+					pos: p,
+					name: "array",
+					meta: [],
+					access: [APublic, AStatic, AInline],
+					kind: FFun({
+						args: [{name: "size", type: macro :Int},],
+						ret: arrayRet,
+						expr: macro return cpp.NativeArray.create(size)
+					}), // macro {return null;}
+				};
+				objFields.push(arrayAlloc);
+			}
+			
+		}
+
+		var coreClassFields = isObject ? dfields.concat(objFields) : dfields;
 		var classNativeDefn = {
 			pos: p,
 			pack: pack,
@@ -520,14 +576,16 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 			meta: [
 				{name: ":native", params: [intName.asConstExpr()], pos: p},
 				{name: ":structAccess", params: null, pos: p},
-//				{name: ":unreflective", params: null, pos: p},
+				{name: ":unreflective", params: null, pos: p},
+				{name: ":nativeArrayAccess", params: null, pos: p},
+
 				getMacroBuilderMeta(p),
 				// {name: ":buildXml", params:['<include name="${buildXML}"/>'.asConstExpr()], pos: p},
 			],
 			isExtern: true,
 			kind: isAbstract ? TDAbstract(abstractCT, [], [abstractCT],
 				[abstractCT]) : TDClass(), // TDAbstract(macro :idl.Types.Ref, [], [macro :idl.Types.Ref], [macro :idl.Types.Ref]),
-			fields: dfields,
+			fields: coreClassFields,
 		}
 
 		// ECall(EField(EConst(CIdent(name)).at(p), "fromIndex").at(p), [EConst(CInt("0")).at(p)]).at(p); // { expr : , pos : p };
@@ -537,7 +595,73 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 		var newWrapper = (macro this = $proxyConstructExpr).asPublicFunctionField("alloc", [], fullPtrCT, p);
 
 		if (isObject) {
-			var ptrFields = statics.concat(staticNew != null ? [staticNew, staticDelete] : []);
+			var printer = new Printer();
+			var redirects = dfields.filter(x -> x.name.startsWith(REDIRECT_PREFIX)).map(x -> x.name.substring(REDIRECT_PREFIX.length));
+			// var stubs = dfields.filter(x -> redirects.contains(x.name));
+			// var ptrRedirects = stubs;
+			var ptrRedirects = dfields.filter(x -> redirects.contains(x.name)).map(x -> {
+				var fun = switch (x.kind) {
+					case FFun(f): f;
+					default: throw "Unsupported kind for redirect field";
+				}
+
+				var y:Field = Reflect.copy(x);
+
+				var yfun = Reflect.copy(fun);
+				var callInfo = switch (yfun.expr.expr) {
+					case ECall(ecall, params):
+						{call: ecall, params: params, ret: false};
+					case EReturn(rete):
+						switch (rete.expr) {
+							case ECall(ecall, params):
+								{call: ecall, params: params, ret: true};
+							default:
+								throw "Unsupported return expression ${rete.expr.expr}";
+						}
+					default: throw 'Unsupported return expression ${yfun.expr.expr}';
+				}
+				var params = callInfo.params.copy();
+				params.shift();
+				params.unshift(EConst(CIdent("this")).at(p));
+
+				var callExpr = (fullProxyName + "." + REDIRECT_PREFIX + y.name).asFieldAccess(p);
+
+				trace('ptrRedirects ${x.name} ${printer.printExpr(callExpr)}');
+				yfun.expr = switch (callInfo.ret) {
+					case true:
+						{expr: EReturn({expr: ECall(callExpr, params), pos: p}), pos: p};
+					case false:
+						{expr: ECall(callExpr, params), pos: p};
+				}
+
+				y.kind = FFun(yfun);
+				y;
+			});
+
+			var asPtrFieldPtrClass:Field = {
+				pos: p,
+				name: "asPtr",
+				meta: [],
+				access: [APublic, AInline],
+				kind: FFun({args: [], ret: fullPtrCT, expr: macro return this}),
+			};
+			var fromCast:Field = {
+				pos: p,
+				name: "fromCast",
+				meta: [{name: ":from", params: [], pos: p}],
+				access: [APublic, AStatic, AInline],
+				kind: FFun({
+					args: [
+						{
+							name: "self",
+							type: macro :cpp.Reference<$proxyCT>,
+						}
+					],
+					ret: fullPtrCT,
+					expr: macro return cpp.Pointer.addressOf(self)
+				}),
+			};
+			var ptrFields = statics.concat(staticNew != null ? [staticNew, staticDelete] : []).concat(ptrRedirects).concat([asPtrFieldPtrClass, fromCast]);
 			var ptrDefn = {
 				pos: p,
 				pack: pack,
@@ -545,9 +669,9 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 				meta: [
 					{name: ":forward", pos: p},
 					{name: ":forwardStatics", pos: p},
-					// {name: ":unreflective", params: null, pos: p}
+					{name: ":unreflective", params: null, pos: p}
 				],
-				isExtern: false,
+				isExtern: true,
 				kind: TDAbstract(ptrCT, [], [ptrCT], [ptrCT]),
 				fields: ptrFields // abstractNewField != null ? [ newWrapper] : [],
 			};
@@ -563,32 +687,21 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 			// 	kind: TDAbstract(refCT, [], [refCT], [refCT]),
 			// 	fields: [] // abstractNewField != null ? [newWrapper] : [],
 			// };
-			
-			var structMake = {
-				pos: p,
-				name: PROXY_STRUCT_MAKE,
-				meta: [{name: ":native", params: [${intName}.asConstExpr()], pos: p}],
-				access: [APublic, AStatic],
-				kind: FFun({args: newArgs, ret: shortStructName.asComplexType(), expr: null}), // macro {return null;}
-			};
 
-			if (hasNew) {
-				dfields.push(structMake);
-			}
-			var structFields = hasNew ? [structMake] : [];
-			var structDefn = {
-				pos: p,
-				pack: pack,
-				name: shortStructName,
-				meta: [
-					{name: ":forward", pos: p},
-					{name: ":forwardStatics", pos: p},
-					// {name: ":unreflective", params: null, pos: p}
-				],
-				isExtern: false,
-				kind: TDAbstract(structCT, [], [structCT], [structCT]),
-				fields: structFields // abstractNewField != null ? [ newWrapper] : [],
-			};
+			// var structFields = hasNew ? [structMake] : [];
+			// var structDefn = {
+			// 	pos: p,
+			// 	pack: pack,
+			// 	name: shortStructName,
+			// 	meta: [
+			// 		{name: ":forward", pos: p},
+			// 		{name: ":forwardStatics", pos: p},
+			// 		// {name: ":unreflective", params: null, pos: p}
+			// 	],
+			// 	isExtern: false,
+			// 	kind: TDAbstract(structCT, [], [structCT], [structCT]),
+			// 	fields: structFields // abstractNewField != null ? [ newWrapper] : [],
+			// };
 
 			var abstractDefn = {
 				pos: p,
@@ -606,9 +719,9 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 				name: shortRefName,
 				meta: [
 					{name: ":native", params: [('cpp.Reference< ${intName} >').asConstExpr()], pos: p},
-//					{name: ":structAccess", params: null, pos: p},
-	//				{name: ":unreflective", params: null, pos: p},
-//					getMacroBuilderMeta(p),
+					//					{name: ":structAccess", params: null, pos: p},
+					//				{name: ":unreflective", params: null, pos: p},
+					//					getMacroBuilderMeta(p),
 					// {name: ":buildXml", params:['<include name="${buildXML}"/>'.asConstExpr()], pos: p},
 				],
 				isExtern: true,
@@ -623,9 +736,9 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 				name: shortStructName,
 				meta: [
 					{name: ":native", params: [('cpp.Struct< ${intName} >').asConstExpr()], pos: p},
-//					{name: ":structAccess", params: null, pos: p},
-	//				{name: ":unreflective", params: null, pos: p},
-//					getMacroBuilderMeta(p),
+					//					{name: ":structAccess", params: null, pos: p},
+					//				{name: ":unreflective", params: null, pos: p},
+					//					getMacroBuilderMeta(p),
 					// {name: ":buildXml", params:['<include name="${buildXML}"/>'.asConstExpr()], pos: p},
 				],
 				isExtern: true,
@@ -633,55 +746,211 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 					[abstractCT]) : TDClass(fullRefName.asTypePath()), // TDAbstract(macro :idl.Types.Ref, [], [macro :idl.Types.Ref], [macro :idl.Types.Ref]),
 				fields: [],
 			};
+
+
+			var arrayDataDefn = macro class $arrayDataName {
+				var _backing:Array<cpp.UInt8>;
+				var _ptr:cpp.RawPointer<$proxyCT>;
+				var _count:Int = 0;
+				var _size:Int = 0;
+				var _capacity:Int = 0;
+				public function new(capacity:Int = 32) {
+					_capacity = capacity;
+					_size = cpp.Native.sizeof($i{proxyName});
+					
+					_backing = new Array<cpp.UInt8>();
+					_backing.resize(_capacity * _size);
+					_ptr = cast cpp.Pointer.ofArray(_backing).raw;
+					_count = 0;
+				}
+
+				public var length(get, never):Int;
+				inline function get_length():Int {
+					return _count;
+				}
+				public inline function asPtr():cpp.Pointer<$proxyCT> {
+					return cpp.Pointer.fromRaw(_ptr);
+				}
+
+				public inline function resize(newSize:Int) {
+					if (newSize > _capacity) {
+						_backing.resize(newSize * _size);
+						_ptr = cast cpp.Pointer.ofArray(_backing).raw;
+					}
+					_count = newSize;
+				}
+
+				public inline function push( value:$proxyCT):Void {
+					if (_count == _capacity) {
+						var oldCapacity = _capacity;
+						var newCapacity = _capacity * 2;
+						_backing.resize(newCapacity * _size);
+						_ptr = cast cpp.Pointer.ofArray(_backing).raw;
+						_capacity = newCapacity;
+					}
+					_ptr[_count++] = value;
+				}
+			};
 			
-			return [classNativeDefn, ptrDefn, refDefn, structDefn]; 
+			// var arrayDataDefn = {
+			// 	pos: p,
+			// 	pack: pack,
+			// 	name: arrayDataName,
+			// 	meta: [],
+			// 	isExtern: false,
+			// 	kind: TDClass(arrayDataName.asTypePath()), // TDAbstract(macro :idl.Types.Ref, [], [macro :idl.Types.Ref], [macro :idl.Types.Ref]),
+			// 	fields: [],
+			// }
+
+			var arrayProxyClass = macro class $arrayName {
+				public function new(capacity:Int = 32) {
+					this = new $arrayDataCP(capacity);
+				}
+				@:op([]) public inline function arrayRead(index:Int) : $proxyCT{
+					if (index < 0 || index >= @:privateAccess this._count) {
+						throw "Array index out of bounds";
+					}
+					return @:privateAccess this._ptr[index];
+				}
+
+				@:op([]) public inline function arrayWrite(index:Int, value:$proxyCT) {
+					if (index < 0 || index >= @:privateAccess  this._count) {
+						throw "Array index out of bounds";
+					}
+					return @:privateAccess this._ptr[index] = value;
+				}
+			};
+			var arrayDefn = {
+				pos: p,
+				pack: pack,
+				name: arrayName,
+				meta: [{name: ":forward", pos: p}],
+				isExtern: false,
+				kind: TDAbstract(arrayDataCT, [], [arrayDataCT],
+					[arrayDataCT]), // TDAbstract(macro :idl.Types.Ref, [], [macro :idl.Types.Ref], [macro :idl.Types.Ref]),
+				fields: arrayProxyClass.fields,
+			}
+
+			
 			/*
-package externs;
 
-import cpp.UInt8;
-import cpp.Pointer;
+				@:generic
+				@:nativeArrayAccess
+				@:unreflective
+				class NativeStructArrayData<T>  {
+				var _backing:Array<T>;
+				var _ptr:cpp.RawPointer<T>;
+				var _ptr2:cpp.Pointer<T>;
+				var _count:Int = 0;
 
-@:include("./../lib/LibInclude.h")
-@:sourceFile("./../lib/RGB.cpp")
-@:native("RGB")
-extern class RGB
-{
-   public var r:UInt8;
-   public var g:UInt8;
-   public var b:UInt8;
+				public function new(capacity:Int = 32) {
+					_backing = cpp.NativeArray.create(capacity);
+					_backing.resize(capacity);
+					_ptr = cpp.Pointer.ofArray(_backing).raw;
+				}
 
-   public function getLuma():Int;
-   public function toInt():Int;
+				// @:from
+				// public static inline function fromArray<T>(array:Array<T>):Void {
+				//     return 
+				// }
+				public var length(get,never):Int;
+				inline function get_length():Int {
+					return _count;
+				}
+				public inline function asPtr():cpp.Pointer<T> {
+					return cpp.Pointer.fromRaw(_ptr);
+				}
+				public inline function asArray():Array<T> {
+					return _backing;
+				}
+				public inline function push(value:T):Void {
+					if (_count == _backing.length) {
+						var length = _backing.length;
+						_backing.resize(_backing.length * 2);
+						_ptr = cpp.Pointer.ofArray(_backing).raw;
+						_backing.resize(length);
+					}
+					_ptr[_count++] = value;
+				}
 
-   @:native("new RGB")
-   public static function create(r:Int, g:Int, b:Int):Pointer<RGB>;
+				public inline function resize(newSize:Int):Void {
+					_count = newSize;
+				}
 
-   @:native("~RGB")
-   public function deleteMe():Void;
-}
+				}
+
+				@:generic
+				@:forward
+				@:nativeArrayAccess
+				abstract NativeStructArray<T>(NativeStructArrayData<T>) to NativeStructArrayData<T> from NativeStructArrayData<T> {
+				public function new(capacity:Int) {
+					this = new NativeStructArrayData<T>(capacity);
+				}
+
+				@:from public static inline function fromArray<S>(array:Array<S>) {
+					var x : NativeStructArray<S> = new NativeStructArrayData<S>(array.length);
+					for (i in 0...array.length) {
+						x.push(array[i]);
+					}
+					return x;
+				}
+				@:op([]) public inline function arrayRead(index:Int) : T{
+					return @:privateAccess this._ptr[index];
+				}
+
+				@:op([]) public inline function arrayWrite(index:Int, value:T) {
+					return @:privateAccess this._ptr[index] = value;
+				}
+				}
+			 */
+			return allowArray ? [classNativeDefn, ptrDefn, arrayDataDefn, arrayDefn] : [classNativeDefn, ptrDefn]; // refDefn, structDefn
+			/*
+				package externs;
+
+				import cpp.UInt8;
+				import cpp.Pointer;
+
+				@:include("./../lib/LibInclude.h")
+				@:sourceFile("./../lib/RGB.cpp")
+				@:native("RGB")
+				extern class RGB
+				{
+				public var r:UInt8;
+				public var g:UInt8;
+				public var b:UInt8;
+
+				public function getLuma():Int;
+				public function toInt():Int;
+
+				@:native("new RGB")
+				public static function create(r:Int, g:Int, b:Int):Pointer<RGB>;
+
+				@:native("~RGB")
+				public function deleteMe():Void;
+				}
 
 
 
-// By extending RGB we keep the same API as far as haxe is concerned, but store the data (not pointer)
-//  The native Reference class knows how to take the reference to the structure
-@:native("cpp.Reference<RGB>")
-extern class RGBRef extends RGB
-{
-}
+				// By extending RGB we keep the same API as far as haxe is concerned, but store the data (not pointer)
+				//  The native Reference class knows how to take the reference to the structure
+				@:native("cpp.Reference<RGB>")
+				extern class RGBRef extends RGB
+				{
+				}
 
 
 
-// By extending RGBRef, we can keep the same api, 
-//  rather than a pointer
-@:native("cpp.Struct<RGB>")
-extern class RGBStruct extends RGBRef
-{
-}
+				// By extending RGBRef, we can keep the same api, 
+				//  rather than a pointer
+				@:native("cpp.Struct<RGB>")
+				extern class RGBStruct extends RGBRef
+				{
+				}
 
 
 
 
-			*/
+			 */
 		}
 		return [classNativeDefn];
 	}
@@ -899,7 +1168,7 @@ extern class RGBStruct extends RGBRef
 			name: makeName(name),
 			meta: [
 				{name: ":native", params: [namespaceName.asConstExpr()], pos: p},
-//				{name: ":unreflective", params: null, pos: p},
+				//				{name: ":unreflective", params: null, pos: p},
 				{name: ":notNull", params: null, pos: p},
 				getMacroBuilderMeta(p),
 			],
@@ -927,7 +1196,7 @@ extern class RGBStruct extends RGBRef
 				name: implName,
 				meta: [
 					{name: ":native", params: [namespaceName.asConstExpr()], pos: p},
-//					{name: ":unreflective", params: null, pos: p},
+					//					{name: ":unreflective", params: null, pos: p},
 					{name: ":notNull", params: null, pos: p},
 					getMacroBuilderMeta(p),
 					//					@:scalar

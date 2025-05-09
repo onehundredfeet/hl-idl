@@ -188,6 +188,7 @@ class Parser {
 				case "ForceCamelCase", "CamelCase": AForceCamelCase;
 				case "Initialize": AInitialize;
 				case "Static": AStatic;
+				case "AllowArray": AAllowArray;
 				case "Embed": AEmbed;
 				case "Class": AClass;
 				case "Virtual": AVirtual;
