@@ -603,6 +603,7 @@ class CMakeGenerateHXCPP {
 		var cppDefines = [];
 		var linkLibs = [];
 		var findLibs = [];
+		var copies = [];
 
 		for (dir in includeDirs) {
 			cppIncludeDirs.push(sys.FileSystem.absolutePath(dir));
@@ -664,6 +665,14 @@ class CMakeGenerateHXCPP {
 					continue;
 				}
 
+				if (cf.nodeName == 'copy') {
+					#if (cmake_idl_verbose > 1)
+					trace('Adding copy: ${cf.get('value')}');
+					#end
+					copies.push({src:cf.get('src'), dst:cf.get('dest')});
+					continue;
+				}
+
 				if (cf.nodeName != 'compilerflag' && cf.nodeName != 'flag' && cf.nodeName != 'cppflag') {
 					continue;
 				}
@@ -710,6 +719,10 @@ class CMakeGenerateHXCPP {
 			miscCompilerFlags.push(resolveString("-arch ${HXCPP_ARCH}"));
 		}
 
+		// for (d in _defines.keyValueIterator()) {
+		// 	trace('Adding define: ${d.key} = ${d.value}');
+		// }
+		
 		#if (cmake_idl_verbose > 1)
 		trace('Include dirs: ${cppIncludeDirs.join(',')}');
 		trace('Lib dirs: ${cppLibDirs.join(',')}');
@@ -838,6 +851,22 @@ class CMakeGenerateHXCPP {
 		}
 		addLine(')');
 
+		for ( f in copies ) {
+			var src = resolvePath(f.src);
+			var dst = resolveString(f.dst);
+			// addLine('add_custom_command(TARGET ${outputName} POST_BUILD');
+			// addLine('\tCOMMAND ${CMAKE_COMMAND} -E copy ${src} ${dst}');
+			// addLine(')');
+			trace('Adding copy: ${src} -> ${dst}');
+			addLine('configure_file( "${src}" "' + "${CMAKE_CURRENT_BINARY_DIR}/" + '${dst}" COPYONLY)');
+		}
+		
+// configure_file(
+//   ${SOURCE_FILE}
+//   ${DESTINATION_FILE}
+//   COPYONLY
+// )
+		
 		saveIfDifferent('${_relBuildDir}/CMakeLists.txt', _builder.toString());
 	}
 }
