@@ -72,18 +72,28 @@ class MacroTools {
 			pos: sanitize(pos)
 		};
 
-	public macro static function buildHXCPPIDLType(idlRelPath:String):Array<Field> {
+	static var idlParse = ~/\$\{([\w]+)_IDL_DIR\}\/([\w]+)\.idl/i;
+	public macro static function buildHXCPPIDLType(idlRelPath:String, ?includeFlag : Bool) :Array<Field> {
 		var ct = Context.getLocalClass().get();
 
-		var file = Context.getPosInfos(Context.currentPos()).file;
-		var dir = haxe.io.Path.directory(file);
+		var current_file = Context.getPosInfos(Context.currentPos()).file;
+		var dir = haxe.io.Path.directory(current_file);
 		var module = Context.getLocalModule().split('.').pop();
-
 		var className = ct.name;
 		var ma:MetaAccess = ct.meta;
 		var md:Metadata = ma.get();
 
-		var buildMeta = {name: ":buildXml", params: [asConstExpr('<include name=\"${dir}/${module}.xml\"/>', Context.currentPos())], pos: ct.pos};
+		var IDL_NAME_UPPER = module.toUpperCase();
+		var xmlFileName = '${module}.xml';
+
+		if (idlParse.match(idlRelPath)) { 
+			IDL_NAME_UPPER = idlParse.matched(1).toUpperCase();
+			var idlFileName = idlParse.matched(2);		
+			xmlFileName = '${idlFileName}.xml';	
+//			trace('IDL_NAME_UPPER: ${IDL_NAME_UPPER} idlFileName: ${idlFileName} xmlFileName: ${xmlFileName}');
+		}
+
+		var buildMeta = {name: ":buildXml", params: [asConstExpr('<include name=\"${dir}/${xmlFileName}\"/>', Context.currentPos())], pos: ct.pos};
 		var include = {name: ":include", params: [asConstExpr('hxcpp/${module}_hxcpp_idl.h', Context.currentPos())], pos: Context.currentPos()};
 
 		var moduleDefine = '${module.toUpperCase()}_IDL_DIR';
@@ -91,7 +101,8 @@ class MacroTools {
 		
 
 		ma.add(buildMeta.name, buildMeta.params, buildMeta.pos);
-		ma.add(include.name, include.params, include.pos);		
+		if (includeFlag == null || includeFlag)
+			ma.add(include.name, include.params, include.pos);		
 		//ma.add({name: ":native", params: [asConstExpr("SampleA"), asConstExpr("SampleA")], pos: Context.currentPos()});
 		var check = ma.get();
 

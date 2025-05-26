@@ -510,7 +510,7 @@ class CMakeGenerateHXCPP {
 		for (o in _defines.keyValueIterator()) {
 			trace('${o.key} = ${o.value}');
 		}
-		#else
+		#end
 
 		// var xmlStr = File.getContent('${outDir}/Build.xml');
 
