@@ -67,6 +67,7 @@ abstract class GenerateBase {
         }
 
         sys.FileSystem.createDirectory(opts.glueDir);
+        trace('generating glue in ' + opts.glueDir);
         generator.generateGlue();
         if (opts.generateSource) {
             sys.FileSystem.createDirectory(opts.hxDir);

@@ -13,9 +13,17 @@ private var _absBuildDir:String;
 private var _launchDir:String;
 private var _tags = new Map<String, Bool>();
 
-private function resolveString(s:String, ignoreMissing = false):String {
-	while (s.contains("${") && s.contains("}")) {
-		var start = s.indexOf("${");
+enum ToolChain {
+	UNKNOWN;
+	OSX;
+}
+
+var _toolChainName = [ToolChain.UNKNOWN => "", ToolChain.OSX => "mac"];
+
+private function resolveString(s:String, ignoreMissing = false, preserve = false):String {
+	var head = 0;
+	while ((s.indexOf("${", head) >= 0) && (s.indexOf("}", head + 2) >= 0)) {
+		var start = s.indexOf("${", head);
 		var end = s.indexOf("}", start);
 		var key = s.substring(start + 2, end);
 		var replace = resolveDefine(key, ignoreMissing);
@@ -24,12 +32,17 @@ private function resolveString(s:String, ignoreMissing = false):String {
 		}
 		if (replace == null) {
 			if (ignoreMissing) {
-				replace = "";
+				replace = preserve ? null : "";
 			} else {
 				replace = "<" + key + ">";
 			}
 		}
-		s = s.substring(0, start) + replace + s.substring(end + 1);
+		if (replace != null) {
+			s = s.substring(0, start) + replace + s.substring(end + 1);
+			head = start + replace.length;
+		} else {
+			head = end + 1;
+		}
 	}
 	return s;
 }
@@ -82,10 +95,24 @@ private function resolveSourcePath(file:Xml, files:Xml):String {
 	if (name == "${resourceFile}")
 		return null;
 
+	var xmlPath = file.get('_xml_path');
+	if (xmlPath == null) {
+		xmlPath = files.get('_xml_path');
+	}
+	if (xmlPath != null) {
+		var xmlDir = sys.FileSystem.absolutePath(haxe.io.Path.directory(xmlPath));
+		_defines.set('this_dir', xmlDir);
+	}
+
+	function cleanReturn(s:String):String {
+		_defines.remove('this_dir');
+		return cleanPath(FileSystem.absolutePath(s));
+	}
+
 	name = cleanPath(resolveString(name));
 	if (isAbsolutePath(name)) {
 		if (FileSystem.exists(name))
-			return name;
+			return cleanReturn(name);
 		tried.push(name);
 	} else {
 		ignored.push(name);
@@ -93,10 +120,14 @@ private function resolveSourcePath(file:Xml, files:Xml):String {
 
 	if (dir == null) {
 		if (FileSystem.exists(name))
-			return name;
+			return cleanReturn(name);
 		tried.push(name);
 		// try build dir
 		var buildPath = '${_absBuildDir}/${name}';
+		if (FileSystem.exists(buildPath)) {
+			return cleanReturn(buildPath);
+		}
+		tried.push(buildPath);
 	} else {
 		ignored.push("directory is not empty");
 	}
@@ -104,7 +135,7 @@ private function resolveSourcePath(file:Xml, files:Xml):String {
 		dir = resolveString(dir);
 		var path = cleanPath('${dir}/${name}');
 		if (FileSystem.exists(path))
-			return path;
+			return cleanReturn(path);
 		tried.push(path);
 	}
 
@@ -114,15 +145,15 @@ private function resolveSourcePath(file:Xml, files:Xml):String {
 		var path = '${dir}/${name}';
 		path = cleanPath(path.replace("${HXCPP}", _hxCppDir));
 		if (FileSystem.exists(path))
-			return path;
+			return cleanReturn(path);
 		tried.push(path);
 	} else {
 		ignored.push("parent path is empty");
 	}
 
-	trace('Cannot resolve source path for ${name} in dir ${dir}');
-	trace('from ${file}');
-	trace('within ${files}');
+	trace('1 Cannot resolve source path for ${name} in dir ${dir}');
+	//	trace('from ${file}');
+	//	trace('within ${files}');
 	trace('Tried:');
 	for (t in tried) {
 		trace('\t${t}');
@@ -131,9 +162,9 @@ private function resolveSourcePath(file:Xml, files:Xml):String {
 	for (i in ignored) {
 		trace('\t${i}');
 	}
-	throw('Cannot resolve source path for ${name}');
+	throw('2 Cannot resolve source path for ${file}');
 
-	return cleanPath(name);
+	return cleanReturn(name);
 }
 
 class NodeCriteria {
@@ -246,7 +277,7 @@ class CompileBlock {
 	public var id:String;
 
 	public static function fromXml(root:Xml):CompileBlock {
-		collapseSections(root);
+		// collapseSections(root);
 		var blockCriteria = NodeCriteria.fromNode(root);
 		if (blockCriteria != null && !blockCriteria.match()) {
 			return null;
@@ -270,7 +301,7 @@ class CompileBlock {
 				return continue;
 
 			if (srcPath == null) {
-				throw('Cannot resolve source path for ${f} on ${root}');
+				throw('3 Cannot resolve source path for ${f} on ${root}');
 			}
 			if (!srcPath.startsWith('/')) {
 				srcPath = FileSystem.absolutePath(srcPath);
@@ -312,11 +343,78 @@ class CMakeGenerateHXCPP {
 		_builder.add('\n');
 	}
 
-	static function resolvePath(path:String, required = true) {
+	static function resolvePath(path:String, required = true, context:Xml = null) {
+		if (context != null) {
+			// {
+			// 	var node = context;
+			// 	var dir:String = null;
+			// 	while (node != null && dir == null) {
+			// 		dir = node.get('dir');
+			// 		node = node.parent;
+			// 		if (node != null && node.nodeType != Xml.Element) {
+			// 			node = null;
+			// 		}
+			// 	}
+
+			// 	if (dir != null) {
+			// 		throw('We have a directory!');
+			// 	}
+			// }
+			var xmlPath = context.get('_xml_path');
+			if (xmlPath != null) {
+				var xmlDir = sys.FileSystem.absolutePath(haxe.io.Path.directory(xmlPath));
+				_defines.set('this_dir', xmlDir);
+			}
+		}
+
+		path = cleanPath(path);
 		path = resolveString(path);
+
+		_defines.remove('this_dir');
+
+		if (haxe.io.Path.isAbsolute(path)) {
+			if (FileSystem.exists(path)) {
+				//				trace('Resolved absolute path: ${path}');
+				return path;
+			} else {
+				trace('Failed to resolve absolute path: ${path}');
+			}
+		}
+
+		if (context != null) {
+			// {
+			// 	var node = context;
+			// 	var dir:String = null;
+			// 	while (node != null && dir == null) {
+			// 		dir = node.get('dir');
+			// 		node = node.parent;
+			// 		if (node != null && node.nodeType != Xml.Element) {
+			// 			node = null;
+			// 		}
+			// 	}
+
+			// 	if (dir != null) {
+			// 		throw('We have a directory!');
+			// 	}
+			// }
+			var xmlPath = context.get('_xml_path');
+			if (xmlPath != null) {
+				var xmlDir = sys.FileSystem.absolutePath(haxe.io.Path.directory(xmlPath));
+				// try prepending xml dir
+				var xmlPathResolved = cleanPath('${xmlDir}/${path}');
+				trace('Checking.. ${xmlPathResolved}');
+				if (FileSystem.exists(xmlPathResolved)) {
+					trace('Resoled relative path: ${path} to ${xmlPathResolved}');
+					return xmlPathResolved;
+				} else {
+					//					trace('Failed to resolve relative path: ${path} to ${xmlPathResolved}');
+				}
+			}
+		}
+
 		if (FileSystem.exists(path)) {
 			#if (cmake_idl_verbose > 1)
-			trace('Found path: ${path}');
+			//			trace('Found path: ${path}');
 			#end
 			return path;
 		}
@@ -326,15 +424,17 @@ class CMakeGenerateHXCPP {
 			return path;
 		if (path.startsWith('/'))
 			return path;
+
+		//		trace('Continuing to Resolving relative path: ${path} in ${context}');
 		// try prepending hxcpp dir
 		#if (cmake_idl_verbose > 2)
-		trace('defaulting ${path}');
+		trace('defaulting to hxcpp path: ${path}');
 		#end
 		path = '${_hxCppDir}/${path}';
 		if (FileSystem.exists(path))
 			return path;
 		if (required) {
-			throw('Cannot resolve path: ${path}');
+			throw('Cannot resolve path: ${path} - ${context}');
 		}
 		return path;
 	}
@@ -350,76 +450,299 @@ class CMakeGenerateHXCPP {
 		File.saveContent(path, content);
 	}
 
-	static function getFlatXML(path:String, included:Array<String>):Array<Xml> {
+	static function loadXML(path:String):Array<Xml> {
+		trace('Inflating XML from ${path}');
+
 		var rpath = resolvePath(path);
 		#if (cmake_idl_verbose > 1)
-		trace('--> Processing ${rpath} XML');
+		//		trace('--> Processing ${rpath} XML');
 		#end
+
 		var xmlStr = File.getContent(rpath);
 		var xmlRoot = Xml.parse(xmlStr).firstElement();
-		var elements = [for (e in xmlRoot.elements()) e];
+		var this_dir = FileSystem.absolutePath(rpath).split('/').slice(0, -1).join('/');
 
-		if (included.contains(rpath)) {
-			//            trace('Already included: ${rpath}');
-			return [];
+		function stampPath(x:Xml) {
+			x.set('_xml_path', rpath);
+			for (e in x.elements()) {
+				stampPath(e);
+			}
 		}
-		included.push(rpath);
+		stampPath(xmlRoot);
 
-		var finalElements = [];
-		function resolveLocalDefines() {
-			var this_dir = FileSystem.absolutePath(rpath).split('/').slice(0, -1).join('/');
+		return [for (e in xmlRoot.elements()) e];
+	}
 
-			for (e in elements) {
-				if (e.nodeName == 'set') {
-					var value = e.get('value');
-					if (value != null) {
-						value.replace("${this_dir}", this_dir);
-						value.replace("${THIS_DIR}", this_dir);
-						e.set('value', value);
+	// static function inflateXML(path:String, included = null):Array<Xml> {
+	// 	if (included == null) {
+	// 		included = [];
+	// 	}
+	// 	var localIncluded = [];
+	// 	function resolveLocalDefines(le:Xml) {
+	// 		//			trace('Resolving local defines in ${le}');
+	// 		for (a in le.attributes()) {
+	// 			var value = le.get(a);
+	// 			if (value == null)
+	// 				continue;
+	// 			if (value.contains("${")) {
+	// 				value = value.replace("${this_dir}", this_dir);
+	// 				value = value.replace("${THIS_DIR}", this_dir);
+	// 				value = resolveString(value, true, true);
+	// 				//					trace('\tResolved value: ${value} in ${a} in ${le}');
+	// 				le.set(a, value);
+	// 			}
+	// 		}
+	// 		for (ce in le.elements()) {
+	// 			resolveLocalDefines(ce);
+	// 		}
+	// 	}
+	// 	for (e in xmlRoot.elements()) {
+	// 		resolveLocalDefines(e);
+	// 	}
+	// 	var remove = [];
+	// 	var added = [];
+	// 	// it's not recursing into the files to get the subincludes
+	// 	for (e in xmlRoot.elements()) {
+	// 		if (e.nodeName == 'include') {
+	// 			remove.push(e);
+	// 			var fileName = e.get('name');
+	// 			// if (!NodeCriteria.matchNode(e)) {
+	// 			// 	trace('SKIPPING include: ${fileName} - does not match criteria');
+	// 			// 	continue;
+	// 			// }
+	// 			if (fileName.toUpperCase().contains("HXCPP_CONFIG")) {
+	// 				//						trace('Skipping include: ${fileName} - HXCPP_CONFIG');
+	// 				continue;
+	// 			}
+	// 			fileName = resolvePath(fileName, true, e);
+	// 			if (fileName.contains("${")) {
+	// 				throw('Cannot resolve include name: ${fileName} in ${e}');
+	// 			}
+	// 			if (included.contains(fileName.toLowerCase()) || localIncluded.contains(fileName.toLowerCase())) {
+	// 				//						trace('Skipping already included file: ${fileName}');
+	// 				continue;
+	// 			}
+	// 			trace('Embedding include: ${fileName}');
+	// 			localIncluded.push(fileName.toLowerCase());
+	// 			var includeElements = inflateXML(fileName, included);
+	// 			for (ie in includeElements) {
+	// 				//						trace('embedding ${ie.nodeName}');
+	// 				added.push(ie);
+	// 				if (ie.nodeName == 'pragma') {
+	// 					if (ie.get('once') == 'true') {
+	// 						included.push(fileName.toLowerCase());
+	// 					}
+	// 				}
+	// 			}
+	// 		}
+	// 		//					trace('Found set
+	// 	}
+	// 	for (e in remove) {
+	// 		parent.removeChild(e);
+	// 	}
+	// 	for (e in added) {
+	// 		parent.addChild(e);
+	// 	}
+	// 	for (e in xmlRoot.elements()) {
+	// 		trace('Element: ${e.nodeName} - ${e.get('id')}');
+	// 	}
+	// 	return [for (e in xmlRoot.elements()) e];
+	// 	// var files = elements.filter(function(e) return e.nodeName == 'file');
+	// 	// var include = elements.filter(function(e) return e.nodeName == 'include');
+	// 	// var sets = elements.filter(function(e) return e.nodeName == 'set');
+	// 	// trace(elements.map(function(e) return e.nodeName));
+	// }
+
+	static function attrList(n:Xml) {
+		var attrs = [];
+		for (a in n.attributes()) {
+			var value = n.get(a);
+			if (value == null)
+				continue;
+			attrs.push('${a}="${value}"');
+		}
+		return attrs;
+	}
+
+	static final validElements = [
+		'file',
+		'include',
+		'set',
+		'section',
+		'files',
+		'target',
+		'options',
+		'compilerflag',
+		'cppflag',
+		'flag',
+		'findlib',
+		'copy'
+	];
+	static var allowedFileIDs = [];
+
+	static function walkElements(root:Xml, callback:Xml->Bool, depth = 1000) {
+		for (e in root.elements()) {
+			if (NodeCriteria.matchNode(e)) {
+				if (!callback(e))
+					continue;
+				if (e.nodeName == 'files') {
+					if (!allowedFileIDs.contains(e.get('id'))) {
+						trace('SKIPPING files element with ID: ${e.get('id')} - not in allowed list');
+						continue;
 					}
 				}
+				if (depth > 0) {
+					walkElements(e, callback, depth - 1);
+				}
 			}
 		}
-		resolveLocalDefines();
+	}
 
-		for (e in elements) {
-			if (e.nodeName == 'include') {
-				var name = e.get('name');
+	static function walkRootElements(root:Xml, callback:Xml->Bool) {
+		walkElements(root, callback, 0);
+	}
 
-				var actualPath = name;
-				if (included.contains(actualPath)) {
-					//					trace('Already included: ${actualPath}');
-					continue;
-				}
+	static function walkTree(root:Xml, callback:Xml->Bool) {
+		walkElements(root, callback, 1000);
+	}
 
-				//				trace('Recursing into include: ${name}');
-
-				var includeElements = getFlatXML(actualPath, included);
-				for (ie in includeElements) {
-					finalElements.push(ie);
-				}
-				// var includePath = e.get('path');
-				// var includeElements = getFlatXML(includePath);
-				// finalElements = finalElements.concat(includeElements);
+	static function cbProcessSets(x:Xml) {
+		if (x.nodeName == 'set') {
+			var defineName = resolveString(x.get('name'));
+			var value = resolveString(x.get('value'));
+			if (!_defines.exists(defineName)) {
+				trace('Setting define: ${defineName} = ${value}');
+				_defines.set(defineName, value);
 			} else {
-				if (e.nodeName == 'files') {
-					e.set('path', path);
+				trace('Warning - define ${defineName} already exists with value ${_defines.get(defineName)}');
+				_defines.set(defineName, value);
+			}
+			return false;
+		}
+		return true;
+	}
+
+	static function walkSets(root:Xml, depth = 1000) {
+		var anyChange = false;
+		var changed = true;
+		while (changed) {
+			walkElements(root, (x:Xml) -> {
+				changed = false;
+				if (x.nodeName == 'set') {
+					var defineName = resolveString(x.get('name'));
+					var value = resolveString(x.get('value'));
+					if (!_defines.exists(defineName)) {
+						trace('Setting define: ${defineName} = ${value}');
+						_defines.set(defineName, value);
+						changed = true;
+						anyChange = true;
+					} else {
+						if (value != _defines.get(defineName)) {
+							trace('Warning - overriding define ${defineName} with value ${value} (was ${_defines.get(defineName)})');
+							_defines.set(defineName, value);
+							changed = true;
+							anyChange = true;
+						}
+					}
+					return false;
 				}
-				finalElements.push(e);
+				if (x.nodeName == 'section') {
+					return true;
+				}
+				return false;
+			}, depth);
+		}
+		return anyChange;
+	}
+
+	static var included = [];
+
+	static function addIncludes(root:Xml, recurseFiles = true, depth = 1000) {
+		var anyChanged = false;
+		var changed = true;
+		while (changed) {
+			changed = false;
+			var to_remove = [];
+			var to_add = new Array<{p:Xml, n:Xml}>();
+			// gather includes
+			walkElements(root, (x:Xml) -> {
+				if (x.nodeName == 'include') {
+					var included = x.parent.get('__included') == null ? [] : x.parent.get('__included').split(';');
+
+					var fileName = x.get('name');
+					to_remove.push(x);
+
+					if (fileName.toUpperCase().contains("HXCPP_CONFIG")) {
+						//	trace('Skipping include: ${fileName} - HXCPP_CONFIG');
+						return false;
+					}
+
+					fileName = resolvePath(fileName, true, x);
+
+					if (fileName.contains("${")) {
+						throw('Cannot resolve include name: ${fileName} in ${x}');
+					}
+
+					if (included.contains(fileName.toLowerCase())) {
+						trace('Skipping already included file: ${fileName}');
+						return false;
+					}
+
+					anyChanged = true;
+					included.push(fileName.toLowerCase());
+
+					for (e in loadXML(fileName)) {
+						to_add.push({p: x.parent, n: e});
+					}
+					x.parent.set('__included', included.join(';'));
+				}
+				if (x.nodeName == 'section') {
+					return true;
+				}
+				if (recurseFiles && x.nodeName == 'files' && allowedFileIDs.contains(x.get('id'))) {
+					return true;
+				}
+				return false;
+			}, depth);
+
+			for (x in to_remove) {
+				x.parent.removeChild(x);
+			}
+			for (pn in to_add) {
+				pn.p.addChild(pn.n);
 			}
 		}
 
-		return finalElements;
+		return anyChanged;
+	}
 
-		// var files = elements.filter(function(e) return e.nodeName == 'file');
-		// var include = elements.filter(function(e) return e.nodeName == 'include');
-		// var sets = elements.filter(function(e) return e.nodeName == 'set');
+	static function gatherTargets(root:Xml, depth = 1000) {
+		var haxeTargets = [];
+		walkElements(root, (x:Xml) -> {
+			if (x.nodeName == 'target') {
+				if (x.get('id') != null && x.get('id') == 'haxe') {
+					if (!haxeTargets.contains(x)) {
+						haxeTargets.push(x);
+					}
+				}
+				return false;
+			}
+			return true;
+		});
 
-		// trace(elements.map(function(e) return e.nodeName));
+		return haxeTargets;
 	}
 
 	public static function main() {
 		var args = Sys.args();
+		var toolChain = switch (Sys.systemName().toLowerCase()) {
+			case "mac", "osx", "darwin": ToolChain.OSX;
+			default: ToolChain.UNKNOWN;
+		};
+		if (toolChain == ToolChain.UNKNOWN) {
+			throw('Unknown system: ${Sys.systemName()}');
+		}
+		var toolChainName = _toolChainName.get(toolChain);
 
 		_launchDir = Sys.getCwd();
 		var buildDir = args.shift();
@@ -464,6 +787,7 @@ class CMakeGenerateHXCPP {
 		}
 		_defines.set('removeQuotes:hxcpp_api_level', '430');
 		_defines.set('CPPIA_NO_JIT', '1');
+		_defines.set('toolchain', toolChainName);
 
 		_tags.set('haxe', true);
 		_tags.set('main', true);
@@ -506,12 +830,6 @@ class CMakeGenerateHXCPP {
 			_defines.set(key, value);
 		}
 
-		#if (cmake_idl_verbose > 1)
-		for (o in _defines.keyValueIterator()) {
-			trace('${o.key} = ${o.value}');
-		}
-		#end
-
 		// var xmlStr = File.getContent('${outDir}/Build.xml');
 
 		// var xmlRoot = Xml.parse(xmlStr).firstElement();
@@ -532,90 +850,50 @@ class CMakeGenerateHXCPP {
 		trace('hxcpp dir: ${_hxCppDir}');
 		#end
 
-		//        var xml = getFlatXML('${hxCppDir}/toolchain/setup.xml');  // not very meaningful
-		var includes = [];
-		var haxeTargetXML = getFlatXML('${_hxCppDir}/toolchain/haxe-target.xml', includes);
-		var commonDefines = getFlatXML('${_hxCppDir}/toolchain/common-defines.xml', includes);
-		var generatedBuildXMLPath = '${_relBuildDir}/Build.xml';
+		// <include name="${HXCPP}/build-tool/BuildCommon.xml"/>
+		// <include name="${HXCPP}/src/hx/libs/std/Build.xml"/>
+		// <include name="${HXCPP}/src/hx/libs/std/Build.xml"/>
 
-		var buildXML = getFlatXML(generatedBuildXMLPath, includes);
+		function buildXMLSkeleton() {
+			var toolchainXml = loadXML('${_hxCppDir}/toolchain/setup.xml').concat(loadXML('${_hxCppDir}/toolchain/${toolChainName}-toolchain.xml'))
+				.concat(loadXML('${_hxCppDir}/toolchain/common-defines.xml'))
+				.concat(loadXML('${_hxCppDir}/toolchain/finish-setup.xml'));
+			// var haxeTargetXML = inflateXML('${_hxCppDir}/toolchain/haxe-target.xml');
+			var generatedBuildXMLPath = '${_relBuildDir}/Build.xml';
 
-		var allElements = haxeTargetXML.concat(buildXML).concat(commonDefines);
+			var buildXML = loadXML(generatedBuildXMLPath);
 
-		for (s in allElements.filter((e) -> e.nodeName == "set")) {
-			if (NodeCriteria.matchNode(s)) {
-				var name = s.get('name');
-				var value = s.get('value');
-				#if (cmake_idl_verbose > 1)
-				trace('Setting ${name} = ${value}');
-				#end
-				_defines.set(name, value);
+			// var allElements = haxeTargetXML.concat(commonDefines).concat(buildXML);
+			var allBaseElements = toolchainXml.concat(buildXML);
+			var rootXML = Xml.createElement('root');
+			for (e in allBaseElements) {
+				rootXML.addChild(e);
 			}
-		}
-		var hxcppFileBlocks = new Map<String, CompileBlock>();
-		for (e in allElements.filter((e) -> e.nodeName == "files")) {
-			var filesCriteria = NodeCriteria.fromNode(e);
-			var id = e.get('id');
-			var block = CompileBlock.fromXml(e);
-			if (block == null) {
-				#if (cmake_idl_verbose > 1)
-				trace('Skipping block ${id}');
-				#end
-				continue;
-			}
-			hxcppFileBlocks.set(id, block);
-
-			//			trace('Found file block: ${id}');
-			// for (f in block.files) {
-			// 	var srcPath = f.get('srcPath');
-			// 	trace('\t${srcPath}');
-			// }
+			return rootXML;
 		}
 
-		var targetMap = new Map<String, Target>();
-
-		for (e in allElements.filter((e) -> e.nodeName == "target")) {
-			var id = e.get('id');
-			if (id == null) {
-				trace('Target missing id');
-				continue;
-			}
-			if (targetMap.exists(id)) {
-				targetMap.get(id).merge(e);
-			} else {
-				targetMap.set(id, Target.fromXml(e));
-			}
-		}
-
-		var haxeTarget = targetMap.get('haxe');
-
-		if (haxeTarget == null) {
-			trace('No haxe target');
-			return;
-		}
-
+		var targetFilesFilters = [];
 		var targetBlocks = [];
-
 		var cppIncludeDirs = [];
 		var cppLibDirs = [];
-		var miscCompilerFlags = [];
+		var miscCompilerFlagsAll = [];
+		var miscCompilerFlagsC = [];
 		var cppWarnings = [];
-		var cppDefines = [];
+		var cppDefines = new Map<String, Array<String>>();
 		var linkLibs = [];
 		var findLibs = [];
 		var copies = [];
 
-		for (dir in includeDirs) {
-			cppIncludeDirs.push(sys.FileSystem.absolutePath(dir));
-		}
+		cppDefines.set('haxe', []);
+		var coreDefines = cppDefines.get('haxe');
 
 		if (Sys.systemName() == "Windows") {
-			cppDefines.push('HX_WINDOWS');
-			cppDefines.push('HXCPP_WIN');
-			cppDefines.push('HXCPP_M64');
+			coreDefines.push('HX_WINDOWS');
+			coreDefines.push('HXCPP_WIN');
+			coreDefines.push('HXCPP_M64');
 		} else if (Sys.systemName() == "Mac") {
-			cppDefines.push('HX_MACOS');
-			cppDefines.push('HXCPP_M64');
+			coreDefines.push('HX_MACOS');
+			coreDefines.push('HXCPP_M64');
 			cppWarnings.push('no-parentheses');
 			cppWarnings.push('null-dereference');
 			cppWarnings.push('unused-value');
@@ -623,114 +901,203 @@ class CMakeGenerateHXCPP {
 			cppWarnings.push('overflow');
 			cppWarnings.push('no-invalid-offsetof');
 			cppWarnings.push('no-return-type-c-linkage');
+			miscCompilerFlagsAll.push(resolveString("-arch ${HXCPP_ARCH}"));
 		} else if (Sys.systemName() == "Linux") {
-			cppDefines.push('HX_LINUX');
-			cppDefines.push('HXCPP_LINUX');
-			cppDefines.push('HXCPP_M64');
+			coreDefines.push('HX_LINUX');
+			coreDefines.push('HXCPP_LINUX');
+			coreDefines.push('HXCPP_M64');
 		}
 
+		for (dir in includeDirs) {
+			cppIncludeDirs.push(sys.FileSystem.absolutePath(dir));
+		}
+		cppIncludeDirs.push('${_hxCppDir}/include');
+		// ${HXCPP}/include
+
+		trace('PULLING FROM XML');
+
+		var rootXML = buildXMLSkeleton();
+		while (walkSets(rootXML) || addIncludes(rootXML)) {};
+
+		for (d in _defines.keyValueIterator()) {
+			trace('Define: ${d.key} = ${d.value}');
+		}
+
+		var haxeTargets = gatherTargets(rootXML);
+
+		for (t in haxeTargets) {
+			//			trace('Processing target: ${t}');
+			walkElements(t, (x:Xml) -> {
+				if (x.nodeName == 'files') {
+					var children = [for (x in x.elements()) x];
+					if (children.length == 0) {
+						var id = x.get('id');
+						if (!allowedFileIDs.contains(id)) {
+							trace('Adding file ID to allowed list: ${id}');
+							allowedFileIDs.push(id);
+						}
+					}
+				}
+
+				return false;
+			});
+		}
+
+		while (walkSets(rootXML) || addIncludes(rootXML)) {};
+
+		var targetFiles = new Map<String, Array<Xml>>();
+		targetFiles.set('haxe', []);
+
+		walkElements(rootXML, (x:Xml) -> {
+			if (x.nodeName == 'cache') {
+				if (x.get('asLibrary') == 'true') {
+					if (x.parent.get('__library') == null) {
+						var libName = x.parent.get('id');
+						trace('Setting parent library ID: ${libName}');
+						x.parent.set('__library', libName);
+						targetFiles.set(libName, []);
+					}
+				}
+			}
+			return true;
+		});
+
+		trace('target focus');
+
 		function addFlag(n:Xml) {
+			var libname = n.parent.get('__library');
+			if (libname == null || n.get('_xml_path') != n.parent.get('_xml_path')) {
+				libname = 'haxe';
+			} else {
+				trace('flag is unique to library: ${libname} - ${n}');
+			}
+
 			var value = resolveString(n.get("value"));
 			if (value.startsWith('-I')) {
 				value = value.substring(2);
-				if (!cppIncludeDirs.contains(value))
-					cppIncludeDirs.push(cleanPath(value));
+				value = resolvePath(value, true, n);
+				if (!cppIncludeDirs.contains(value)) {
+					trace('Adding include dir: ${value}');
+					cppIncludeDirs.push(value);
+				}
 			} else if (value.startsWith('-L')) {
 				cppLibDirs.push(value.substring(2));
 			} else if (value.startsWith('-W')) {
 				cppWarnings.push(value.substring(2));
 			} else if (value.startsWith('-D')) {
+				if (!cppDefines.exists(libname)) {
+					cppDefines.set(libname, []);
+				}
 				value = value.substring(2);
-				if (!cppDefines.contains(value))
-					cppDefines.push(value);
+				if (!cppDefines.get(libname).contains(value))
+					cppDefines.get(libname).push(value);
 			} else if (value.startsWith('-l')) {
 				linkLibs.push(value.substring(2));
 			} else {
-				miscCompilerFlags.push(value);
+				if (value.startsWith('-std=c99')) {
+					miscCompilerFlagsC.push(value);
+				} else {
+					miscCompilerFlagsAll.push(value);
+				}
 			}
 		}
 
-		function addFlags(elements:Iterator<Xml>) {
-			for (cf in elements) {
-				if (!NodeCriteria.matchNode(cf)) {
-					// trace('Skipping flag: ${cf.get('value')}');
-					continue;
-				}
-
-				if (cf.nodeName == 'findlib') {
+		function processCommon(x:Xml) {
+			switch (x.nodeName) {
+				case 'copy':
 					#if (cmake_idl_verbose > 1)
-					trace('Adding findlib: ${cf.get('value')} at ${cf.get('dir')}');
+					trace('YAY --> Adding copy: ${x.get('value')}');
 					#end
-					findLibs.push({name: cf.get('value'), dir: cf.get('dir'), link: cf.get('link') == 'true', raw:cf.get('raw') == 'true'});
-					continue;
-				}
-
-				if (cf.nodeName == 'copy') {
+					copies.push({src: x.get('src'), dst: x.get('dest')});
+				case 'compilerflag', 'flag', 'cppflag':
 					#if (cmake_idl_verbose > 1)
-					trace('Adding copy: ${cf.get('value')}');
+					trace('Adding flag: ${x.get('value')}');
 					#end
-					copies.push({src:cf.get('src'), dst:cf.get('dest')});
-					continue;
-				}
-
-				if (cf.nodeName != 'compilerflag' && cf.nodeName != 'flag' && cf.nodeName != 'cppflag') {
-					continue;
-				}
-				#if (cmake_idl_verbose > 1)
-				trace('Adding flag: ${cf.get('value')}');
-				#end
-				addFlag(cf);
-			}
-		}
-
-		addFlags(allElements.iterator());
-
-		for (e in haxeTarget.root.elements()) {
-			if (!NodeCriteria.matchNode(e)) {
-				continue;
-			}
-			switch (e.nodeName) {
-				case 'files':
-					var block = hxcppFileBlocks.get(e.get('id'));
-					if (block == null) {
-						trace('No block for ${e.get('id')}');
-						continue;
+					addFlag(x);
+				case 'findlib':
+					var dir = x.get('dir');
+					dir = dir == null ? null : resolvePath(dir, true, x);
+					#if (cmake_idl_verbose > 1)
+					trace('Adding findlib: ${x.get('value')} at ${dir}');
+					#end
+					for (f in findLibs) {
+						if (f.name == x.get('value') && f.dir == dir) {
+							trace('Skipping duplicate findlib: ${x.get('value')} at ${dir}');
+							return true;
+						}
 					}
-					addFlags(block.root.elements());
-
-					if (block.files.length == 0) {
-						continue;
+					findLibs.push({
+						name: x.get('value'),
+						dir: dir,
+						link: x.get('link') == 'true',
+						raw: x.get('raw') == 'true'
+					});
+				case 'set':
+					var defineName = resolveString(x.get('name'));
+					var value = resolveString(x.get('value'));
+					if (!_defines.exists(defineName)) {
+						throw('Found set not set before: ${defineName} = ${value}');
 					}
-				// trace('Adding files from ${e.get('id')}');
-				// for (f in block.files) {
-				//     trace('\t${f.get('srcPath')}');
-				// }
-				case 'lib':
-					var libName = e.get('name');
-
-					trace('Adding lib: ${libName}');
-					linkLibs.push(libName);
-				case 'options':
 				default:
-					trace('Unknown node: ${e.nodeName}');
+					return false;
 			}
-		}
-		if (Sys.systemName() == "Mac") {
-			miscCompilerFlags.push(resolveString("-arch ${HXCPP_ARCH}"));
+			return true;
 		}
 
-		// for (d in _defines.keyValueIterator()) {
-		// 	trace('Adding define: ${d.key} = ${d.value}');
-		// }
-		
+		trace('walking root XML to find valid flags');
+
+		// find flags
+		walkElements(rootXML, (x:Xml) -> {
+			if (processCommon(x)) {
+				return false;
+			}
+
+			return true;
+		});
+
+		// return;
+
+		// trace('walking root XML to find files blocks');
+
+		walkElements(rootXML, (x:Xml) -> {
+			switch (x.nodeName) {
+				case 'file':
+					// var id = x.parent.get('id');
+					// trace('Processing file element in files block with id ${id} : ${x}');
+					x.set('_abs_path', resolveSourcePath(x, x.parent));
+
+					var libName = x.parent.get('__library');
+					if (libName == null) {
+						libName = 'haxe';
+					}
+					targetFiles.get(libName).push(x);
+				default:
+					//					trace('\tSkipping element: ${x.nodeName}');
+			}
+			return true;
+		});
+
+		for (t in targetFiles.keys()) {
+			trace('taret ${t}');
+			var allFiles = targetFiles.get(t);
+			for (f in allFiles) {
+				trace('\tFile: ${f.get('_abs_path')}');
+			}
+		}
+
 		#if (cmake_idl_verbose > 1)
 		trace('Include dirs: ${cppIncludeDirs.join(',')}');
 		trace('Lib dirs: ${cppLibDirs.join(',')}');
-		trace('Misc compiler flags: ${miscCompilerFlags.join(',')}');
+		trace('Misc compiler flags: ${miscCompilerFlagsAll.join(',')}');
 		trace('Compiler warnings: ${cppWarnings.join(',')}');
-		trace('Compiler defines: ${cppDefines.join(',')}');
+
+		for (t in cppDefines.keys()) {
+			trace('Defines for ${t}: ${cppDefines.get(t).join(',')}');
+		}
+		trace('findLibs : ${findLibs.map((l) -> '${l.name} (${l.dir})').join(', ')}');
 		#end
-		var outputName = resolveString(haxeTarget.root.get('output'), true);
+
+		var outputName = resolveString("${HAXE_OUTPUT}", true);
 		addLine('cmake_minimum_required(VERSION 3.20)');
 		addLine('\n');
 		addLine('project(${outputName} C CXX)');
@@ -739,51 +1106,51 @@ class CMakeGenerateHXCPP {
 		addLine('\n');
 		addLine('add_executable(${outputName}');
 
-		for (f in haxeTarget.root.elementsNamed('files')) {
-			if (!NodeCriteria.matchNode(f)) {
-				//				trace('Skipping block: ${f.get('id')}');
-				continue;
-			}
-
-			#if (cmake_idl_verbose > 1)
-			trace('Looking for files in ${f.get('id')}');
-			#end
-			var block = hxcppFileBlocks.get(f.get('id'));
-			if (block == null) {
-				continue;
-			}
-
-			for (f in block.files) {
-				var fpath = cleanPath(f.get('srcPath'));
-
-				if (!NodeCriteria.matchNode(f)) {
-					trace('Skipping file: ${fpath}');
-					continue;
-				}
-				//				trace('Adding file: ${f.get('srcPath')}');
-				addLine('\t${fpath}');
+		{
+			var allFiles = targetFiles.get('haxe');
+			for (f in allFiles) {
+				var srcPath = resolveSourcePath(f, f.parent);
+				addLine('\t${srcPath}');
 			}
 		}
 
 		addLine(')');
 
+		for (t in targetFiles.keys()) {
+			if (t == 'haxe')
+				continue;
+			var allFiles = targetFiles.get(t);
+			if (allFiles.length == 0)
+				continue;
+			addLine('add_library(_lib_${t} STATIC');
+			for (f in allFiles) {
+				var srcPath = resolveSourcePath(f, f.parent);
+				addLine('\t${srcPath}');
+			}
+			addLine(')');
+		}
+
 		if (findLibs.length > 0) {
 			addLine('');
 			for (fl in findLibs) {
-				var rdir = resolvePath(fl.dir);
-				if (rdir == null) {
-					trace('Cannot resolve dir: ${fl.dir}');
-					continue;
-				}
-				var adir = FileSystem.absolutePath(rdir);
-				if (fl.raw) {
-					cppLibDirs.push(adir);
-				} else {
-					#if (cmake_idl_verbose > 1)
-					trace('Adding findlib: ${fl.name} at ${fl.dir}');
-					#end
-					addLine('set (${fl.name}_DIR ${adir})');
+				if (fl.dir == null) {
 					addLine('find_package(${fl.name} REQUIRED)');
+				} else {
+					var rdir = resolvePath(fl.dir);
+					if (rdir == null) {
+						trace('Cannot resolve dir: ${fl.dir}');
+						continue;
+					}
+					var adir = FileSystem.absolutePath(rdir);
+					if (fl.raw) {
+						cppLibDirs.push(adir);
+					} else {
+						#if (cmake_idl_verbose > 1)
+						trace('Adding findlib: ${fl.name} at ${fl.dir}');
+						#end
+						addLine('set (${fl.name}_DIR ${adir})');
+						addLine('find_package(${fl.name} REQUIRED)');
+					}
 				}
 			}
 			addLine('');
@@ -798,13 +1165,19 @@ class CMakeGenerateHXCPP {
 					}
 				}
 			}
+
+			for (f in targetFiles.keys()) {
+				if (f == 'haxe')
+					continue;
+				addLine('\t_lib_${f}');
+			}
 			for (ll in linkLibs) {
 				addLine('\t${ll}');
 			}
 			addLine(')');
 		}
 
-		addLine ('target_link_directories(${outputName} PRIVATE');
+		addLine('target_link_directories(${outputName} PRIVATE');
 		for (d in cppLibDirs) {
 			var rd = resolvePath(d);
 			if (FileSystem.exists(rd)) {
@@ -819,39 +1192,78 @@ class CMakeGenerateHXCPP {
 		}
 		addLine(')');
 
-		addLine('target_include_directories(${outputName} PRIVATE');
+		function dumpIncludeDirs() {
+			for (d in cppIncludeDirs) {
+				trace('d ${d}');
 
-		cppIncludeDirs.push(resolvePath("${BUILD_DIR}/include"));
-		for (d in cppIncludeDirs) {
-			var rd = resolvePath(d);
-			if (FileSystem.exists(rd)) {
-				var absDir = FileSystem.absolutePath(rd);
-				#if (cmake_idl_verbose > 1)
-				trace('Adding include dir: ${absDir}');
-				#end
-				addLine('\t${absDir}');
-			} else {
-				trace('Include dir not found: ${rd}');
+				var rd = resolvePath(d);
+				if (FileSystem.exists(rd)) {
+					var absDir = FileSystem.absolutePath(rd);
+					#if (cmake_idl_verbose > 1)
+					trace('Adding include dir: ${absDir} to cmake');
+					#end
+					addLine('\t${absDir}');
+				} else {
+					trace('Include dir not found: ${rd}');
+				}
 			}
 		}
-		addLine(')');
-
-		addLine('target_compile_options(${outputName} PRIVATE');
-		for (f in miscCompilerFlags) {
-			addLine('\t${f}');
+		function makeTargetTag( targetName:String):String {
+			return targetName == 'haxe' ? targetName = outputName : '_lib_' + targetName;
 		}
-		for (f in cppWarnings) {
-			addLine('\t-W${f}');
+		for (t in targetFiles.keys()) {
+			var t = makeTargetTag(t);
+			addLine('target_include_directories (${t} PRIVATE');
+				dumpIncludeDirs();
+			addLine(')');
 		}
-		addLine(')');
 
-		addLine('target_compile_definitions(${outputName} PRIVATE');
-		for (f in cppDefines) {
-			addLine('\t${f}');
+		function dumpCompileOptions(targetName:String) {
+			var targetTag = targetName == 'haxe' ? targetName = outputName : '_lib_' + targetName;
+
+			addLine('target_compile_options(${targetTag} PRIVATE');
+			for (f in miscCompilerFlagsAll) {
+				addLine('\t${f}');
+			}
+			for (f in cppWarnings) {
+				addLine('\t-W${f}');
+			}
+			addLine(')');
+
+			addLine('target_compile_options(${targetTag} PRIVATE');
+			for (f in miscCompilerFlagsAll) {
+				addLine('\t${f}');
+			}
+			for (f in cppWarnings) {
+				addLine('\t-W${f}');
+			}
+			addLine(')');
+
+			addLine('target_compile_options(${targetTag} PRIVATE  ' + "$<$<COMPILE_LANGUAGE:C>:");
+			for (f in miscCompilerFlagsC) {
+				addLine('\t${f}');
+			}
+			addLine('>)');
+
+			addLine('target_compile_definitions(${targetTag} PRIVATE');
+			for (f in cppDefines.get('haxe')) {
+				addLine('\t${f}');
+			}
+			if (targetName != 'haxe') {
+				if (cppDefines.get(targetName) != null) {
+					for (f in cppDefines.get(targetName)) {
+						addLine('\t${f}');
+					}
+				}
+			}
+			addLine(')');
 		}
-		addLine(')');
 
-		for ( f in copies ) {
+		for (t in targetFiles.keys()) {
+			dumpCompileOptions(t);
+		}
+
+		for (f in copies) {
 			var src = resolvePath(f.src);
 			var dst = resolveString(f.dst);
 			// addLine('add_custom_command(TARGET ${outputName} POST_BUILD');
@@ -860,18 +1272,183 @@ class CMakeGenerateHXCPP {
 			trace('Adding copy: ${src} -> ${dst}');
 			addLine('configure_file( "${src}" "' + "${CMAKE_CURRENT_BINARY_DIR}/" + '${dst}" COPYONLY)');
 		}
-		
-// configure_file(
-//   ${SOURCE_FILE}
-//   ${DESTINATION_FILE}
-//   COPYONLY
-// )
-		
-		saveIfDifferent('${_relBuildDir}/CMakeLists.txt', _builder.toString());
-	}
-}
 
-// - Parsing include: /Users/rcleven/git/hxcpp/toolchain/setup.xml
+		saveIfDifferent('${_relBuildDir}/CMakeLists.txt', _builder.toString());
+
+		return;
+		// var hxcppFileBlocks = new Map<String, CompileBlock>();
+		// for (e in allElements.filter((e) -> e.nodeName == "files")) {
+		// 	var filesCriteria = NodeCriteria.fromNode(e);
+		// 	var id = e.get('id');
+
+		// 	#if (cmake_idl_verbose > 1)
+		// 	trace('---->|| adding block ${id}');
+		// 	#end
+		// 	hxcppFileBlocks.set(id, block);
+		// return;
+
+		// 	//			trace('Found file block: ${id}');
+		// 	// for (f in block.files) {
+		// 	// 	var srcPath = f.get('srcPath');
+		// 	// 	trace('\t${srcPath}');
+		// 	// }
+		// }
+
+		// var targetMap = new Map<String, Target>();
+
+		// for (e in allElements.filter((e) -> e.nodeName == "target")) {
+		// 	var id = e.get('id');
+		// 	if (id == null) {
+		// 		trace('Target missing id');
+		// 		continue;
+		// 	}
+		// 	if (targetMap.exists(id)) {
+		// 		targetMap.get(id).merge(e);
+		// 	} else {
+		// 		targetMap.set(id, Target.fromXml(e));
+		// 	}
+		// }
+
+		// var haxeTarget = targetMap.get('haxe');
+
+		// if (haxeTarget == null) {
+		// 	trace('No haxe target');
+		// 	return;
+		// }
+
+		/*
+
+			function addFlags(elements:Iterator<Xml>) {
+				for (cf in elements) {
+					if (!NodeCriteria.matchNode(cf)) {
+						// trace('Skipping flag: ${cf.get('value')}');
+						continue;
+					}
+
+
+					if (cf.nodeName == 'copy') {
+						#if (cmake_idl_verbose > 1)
+						trace('Adding copy: ${cf.get('value')}');
+						#end
+						copies.push({src: cf.get('src'), dst: cf.get('dest')});
+						continue;
+					}
+
+					if (cf.nodeName != 'compilerflag' && cf.nodeName != 'flag' && cf.nodeName != 'cppflag') {
+						continue;
+					}
+					#if (cmake_idl_verbose > 1)
+					trace('Adding flag: ${cf.get('value')}');
+					#end
+					addFlag(cf);
+				}
+			}
+
+			// for (e in allElements) {
+			// 	trace('all element ${e.nodeName}');
+			// }
+			addFlags(allElements.iterator());
+
+			for (e in haxeTarget.root.elements()) {
+				if (!NodeCriteria.matchNode(e)) {
+					continue;
+				}
+				switch (e.nodeName) {
+					case 'files':
+						var id = e.get('id');
+						trace('Processing files block: ${id}');
+						var block = hxcppFileBlocks.get(e.get('id'));
+						if (block == null) {
+							trace('No block for ${e.get('id')}');
+							continue;
+						}
+						addFlags(block.root.elements());
+
+						if (block.files.length == 0) {
+							continue;
+						}
+					// trace('Adding files from ${e.get('id')}');
+					// for (f in block.files) {
+					//     trace('\t${f.get('srcPath')}');
+					// }
+					case 'lib':
+						var libName = e.get('name');
+
+						trace('Adding lib: ${libName}');
+						linkLibs.push(libName);
+					case 'options':
+					default:
+						trace('Unknown node: ${e.nodeName}');
+				}
+			}
+
+
+			// for (d in _defines.keyValueIterator()) {
+			// 	trace('Adding define: ${d.key} = ${d.value}');
+			// }
+
+
+
+			#if (cmake_idl_verbose > 1)
+			trace('------ Adding files for target: ${outputName}');
+			#end
+			for (f in haxeTarget.root.elementsNamed('files')) {
+				if (!NodeCriteria.matchNode(f)) {
+					#if (cmake_idl_verbose > 1)
+					trace('Skipping block: ${f.get('id')}');
+					#end
+					continue;
+				}
+
+				#if (cmake_idl_verbose > 1)
+				trace('Looking for files in ${f.get('id')}');
+				#end
+				var block = hxcppFileBlocks.get(f.get('id'));
+				if (block == null) {
+					#if (cmake_idl_verbose > 1)
+					trace('No block found for ${f.get('id')}');
+					#end
+					continue;
+				}
+
+				#if (cmake_idl_verbose > 1)
+				if (block.files.length == 0) {
+					trace('Block ${f.get('id')} is empty');
+				}
+				#end
+
+				for (f in block.files) {
+					var fpath = cleanPath(f.get('srcPath'));
+					#if (cmake_idl_verbose > 3)
+					trace('Adding file: ${fpath}');
+					#end
+
+					if (!NodeCriteria.matchNode(f)) {
+						#if (cmake_idl_verbose > 1)
+						trace('Skipping file: ${fpath}');
+						#end
+						continue;
+					}
+					//				trace('Adding file: ${f.get('srcPath')}');
+					addLine('\t${fpath}');
+				}
+			}
+
+			addLine(')');
+
+
+
+
+			// configure_file(
+			//   ${SOURCE_FILE}
+			//   ${DESTINATION_FILE}
+			//   COPYONLY
+			// )
+
+			saveIfDifferent('${_relBuildDir}/CMakeLists.txt', _builder.toString());
+		 */
+	}
+} // - Parsing include: /Users/rcleven/git/hxcpp/toolchain/setup.xml
 // - Parsing include: /Users/rcleven/.hxcpp_config.xml (section "vars")
 // - Running process: xcode-select --print-path
 // - Parsing include: /Users/rcleven/git/hxcpp/toolchain/finish-setup.xml

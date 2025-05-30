@@ -440,6 +440,7 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 				default:
 			}
 
+//		trace('Interface ${ikind} ${iname}');
 		if (isObject) {
 			for (df in dfields) {
 				if (df.name == "new") {
@@ -597,6 +598,19 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 		if (isObject) {
 			var printer = new Printer();
 			var redirects = dfields.filter(x -> x.name.startsWith(REDIRECT_PREFIX)).map(x -> x.name.substring(REDIRECT_PREFIX.length));
+
+			var passthrough = dfields.filter(x -> !x.name.startsWith(REDIRECT_PREFIX)).filter(x -> {
+				switch(x.kind) {
+					case FFun(f):
+						if (!redirects.contains(x.name)) {
+							return true;
+						}
+					default:
+				}
+				return false;
+			}).map(x -> x.name);
+
+			//trace('redirects ${redirects}');
 			// var stubs = dfields.filter(x -> redirects.contains(x.name));
 			// var ptrRedirects = stubs;
 			var ptrRedirects = dfields.filter(x -> redirects.contains(x.name)).map(x -> {
@@ -638,6 +652,42 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 				y;
 			});
 
+			ptrRedirects = ptrRedirects.concat(dfields.filter(x -> passthrough.contains(x.name)).map(x -> {
+				var fun = switch (x.kind) {
+					case FFun(f): f;
+					default: throw "Unsupported kind for redirect field";
+				}
+
+				var y:Field = Reflect.copy(x);
+				y.access = Reflect.copy(y.access);
+				y.access.push(AInline);
+				y.access = y.access.filter(a ->a != AExtern);
+				var yfun = Reflect.copy(fun);
+				var hasRet = switch(fun.ret) {
+					case TPath(p):
+						if (p.pack.length == 0 && p.name == "Void") {
+							false;
+						} else {
+							true;
+						}
+					default:
+						true;
+				};
+
+				//trace('ptrRedirects passthrough ${x.name} hasRet ${hasRet}');
+				var params = yfun.args == null ? [] : yfun.args.map(arg -> arg.name.asIdentExpr(p));
+//				trace('params ${params}');
+				var ecall = ECall(("this.ref." + x.name).asFieldAccess(p), params).at(p);
+
+//				trace('ecall ${printer.printExpr(ecall)}');
+				
+
+				yfun.expr = hasRet ?  EReturn( ecall ).at(p) : ecall;
+
+				y.kind = FFun(yfun);
+				y;
+			}));
+
 			var asPtrFieldPtrClass:Field = {
 				pos: p,
 				name: "asPtr",
@@ -661,6 +711,7 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 					expr: macro return cpp.Pointer.addressOf(self)
 				}),
 			};
+//			trace('object fields - ptrRedirects ${ptrRedirects.length}');
 			var ptrFields = statics.concat(staticNew != null ? [staticNew, staticDelete] : []).concat(ptrRedirects).concat([asPtrFieldPtrClass, fromCast]);
 			var ptrDefn = {
 				pos: p,

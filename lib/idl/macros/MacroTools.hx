@@ -123,7 +123,11 @@ class MacroTools {
 			null;
 		}
 
+		idlAbsPath = sys.FileSystem.absolutePath(idlAbsPath);
+
+		
 		var idlAbsDir = haxe.io.Path.directory(idlAbsPath);
+		
 		var moduleName = idlRelPath.split('/').pop().split('.').shift();
 		var moduleDefine = '${moduleName.toUpperCase()}_IDL_DIR';
 
