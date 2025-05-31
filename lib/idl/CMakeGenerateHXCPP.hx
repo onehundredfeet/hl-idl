@@ -402,9 +402,7 @@ class CMakeGenerateHXCPP {
 				var xmlDir = sys.FileSystem.absolutePath(haxe.io.Path.directory(xmlPath));
 				// try prepending xml dir
 				var xmlPathResolved = cleanPath('${xmlDir}/${path}');
-				trace('Checking.. ${xmlPathResolved}');
 				if (FileSystem.exists(xmlPathResolved)) {
-					trace('Resoled relative path: ${path} to ${xmlPathResolved}');
 					return xmlPathResolved;
 				} else {
 					//					trace('Failed to resolve relative path: ${path} to ${xmlPathResolved}');
@@ -451,7 +449,9 @@ class CMakeGenerateHXCPP {
 	}
 
 	static function loadXML(path:String):Array<Xml> {
+		#if (cmake_idl_verbose > 0)
 		trace('Inflating XML from ${path}');
+		#end
 
 		var rpath = resolvePath(path);
 		#if (cmake_idl_verbose > 1)
@@ -587,7 +587,7 @@ class CMakeGenerateHXCPP {
 					continue;
 				if (e.nodeName == 'files') {
 					if (!allowedFileIDs.contains(e.get('id'))) {
-						trace('SKIPPING files element with ID: ${e.get('id')} - not in allowed list');
+//						trace('SKIPPING files element with ID: ${e.get('id')} - not in allowed list');
 						continue;
 					}
 				}
@@ -611,7 +611,7 @@ class CMakeGenerateHXCPP {
 			var defineName = resolveString(x.get('name'));
 			var value = resolveString(x.get('value'));
 			if (!_defines.exists(defineName)) {
-				trace('Setting define: ${defineName} = ${value}');
+//				trace('Setting define: ${defineName} = ${value}');
 				_defines.set(defineName, value);
 			} else {
 				trace('Warning - define ${defineName} already exists with value ${_defines.get(defineName)}');
@@ -632,7 +632,7 @@ class CMakeGenerateHXCPP {
 					var defineName = resolveString(x.get('name'));
 					var value = resolveString(x.get('value'));
 					if (!_defines.exists(defineName)) {
-						trace('Setting define: ${defineName} = ${value}');
+//						trace('Setting define: ${defineName} = ${value}');
 						_defines.set(defineName, value);
 						changed = true;
 						anyChange = true;
@@ -684,7 +684,7 @@ class CMakeGenerateHXCPP {
 					}
 
 					if (included.contains(fileName.toLowerCase())) {
-						trace('Skipping already included file: ${fileName}');
+//						trace('Skipping already included file: ${fileName}');
 						return false;
 					}
 
@@ -914,14 +914,14 @@ class CMakeGenerateHXCPP {
 		cppIncludeDirs.push('${_hxCppDir}/include');
 		// ${HXCPP}/include
 
-		trace('PULLING FROM XML');
-
 		var rootXML = buildXMLSkeleton();
 		while (walkSets(rootXML) || addIncludes(rootXML)) {};
 
+		#if (cmake_idl_verbose > 2)
 		for (d in _defines.keyValueIterator()) {
 			trace('Define: ${d.key} = ${d.value}');
 		}
+		#end
 
 		var haxeTargets = gatherTargets(rootXML);
 
@@ -933,7 +933,9 @@ class CMakeGenerateHXCPP {
 					if (children.length == 0) {
 						var id = x.get('id');
 						if (!allowedFileIDs.contains(id)) {
+							#if (cmake_idl_verbose > 1)
 							trace('Adding file ID to allowed list: ${id}');
+							#end
 							allowedFileIDs.push(id);
 						}
 					}
@@ -953,7 +955,6 @@ class CMakeGenerateHXCPP {
 				if (x.get('asLibrary') == 'true') {
 					if (x.parent.get('__library') == null) {
 						var libName = x.parent.get('id');
-						trace('Setting parent library ID: ${libName}');
 						x.parent.set('__library', libName);
 						targetFiles.set(libName, []);
 					}
@@ -962,14 +963,13 @@ class CMakeGenerateHXCPP {
 			return true;
 		});
 
-		trace('target focus');
 
 		function addFlag(n:Xml) {
 			var libname = n.parent.get('__library');
 			if (libname == null || n.get('_xml_path') != n.parent.get('_xml_path')) {
 				libname = 'haxe';
 			} else {
-				trace('flag is unique to library: ${libname} - ${n}');
+//				trace('flag is unique to library: ${libname} - ${n}');
 			}
 
 			var value = resolveString(n.get("value"));
@@ -977,7 +977,7 @@ class CMakeGenerateHXCPP {
 				value = value.substring(2);
 				value = resolvePath(value, true, n);
 				if (!cppIncludeDirs.contains(value)) {
-					trace('Adding include dir: ${value}');
+					//					trace('Adding include dir: ${value}');
 					cppIncludeDirs.push(value);
 				}
 			} else if (value.startsWith('-L')) {
@@ -1044,8 +1044,6 @@ class CMakeGenerateHXCPP {
 			return true;
 		}
 
-		trace('walking root XML to find valid flags');
-
 		// find flags
 		walkElements(rootXML, (x:Xml) -> {
 			if (processCommon(x)) {
@@ -1076,7 +1074,7 @@ class CMakeGenerateHXCPP {
 			}
 			return true;
 		});
-
+		#if (cmake_idl_verbose > 2)
 		for (t in targetFiles.keys()) {
 			trace('taret ${t}');
 			var allFiles = targetFiles.get(t);
@@ -1084,7 +1082,7 @@ class CMakeGenerateHXCPP {
 				trace('\tFile: ${f.get('_abs_path')}');
 			}
 		}
-
+		#end
 		#if (cmake_idl_verbose > 1)
 		trace('Include dirs: ${cppIncludeDirs.join(',')}');
 		trace('Lib dirs: ${cppLibDirs.join(',')}');
@@ -1194,7 +1192,7 @@ class CMakeGenerateHXCPP {
 
 		function dumpIncludeDirs() {
 			for (d in cppIncludeDirs) {
-				trace('d ${d}');
+				//				trace('d ${d}');
 
 				var rd = resolvePath(d);
 				if (FileSystem.exists(rd)) {
@@ -1208,13 +1206,13 @@ class CMakeGenerateHXCPP {
 				}
 			}
 		}
-		function makeTargetTag( targetName:String):String {
+		function makeTargetTag(targetName:String):String {
 			return targetName == 'haxe' ? targetName = outputName : '_lib_' + targetName;
 		}
 		for (t in targetFiles.keys()) {
 			var t = makeTargetTag(t);
 			addLine('target_include_directories (${t} PRIVATE');
-				dumpIncludeDirs();
+			dumpIncludeDirs();
 			addLine(')');
 		}
 
