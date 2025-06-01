@@ -677,7 +677,8 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 				//trace('ptrRedirects passthrough ${x.name} hasRet ${hasRet}');
 				var params = yfun.args == null ? [] : yfun.args.map(arg -> arg.name.asIdentExpr(p));
 //				trace('params ${params}');
-				var ecall = ECall(("this.ref." + x.name).asFieldAccess(p), params).at(p);
+				var selfThis = x.access.contains(AStatic) ? fullProxyName + "." : "this.ref.";
+				var ecall = ECall((selfThis + x.name).asFieldAccess(p), params).at(p);
 
 //				trace('ecall ${printer.printExpr(ecall)}');
 				
@@ -1151,7 +1152,7 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 		var toInt = {
 			pos: p,
 			name: "toInt",
-			kind: FFun({args: [], ret: macro :Int, expr: macro return this}),
+			kind: FFun({args: [], ret: macro :Int, expr: macro return cast this}),
 			meta: [],
 			access: [APublic, AInline],
 		};
