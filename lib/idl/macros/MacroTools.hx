@@ -4,7 +4,7 @@ import haxe.macro.Compiler;
 import haxe.macro.Expr;
 import haxe.macro.Context;
 import haxe.macro.Type;
-
+using StringTools;
 // borrowed from tink_macro
 // The MIT License (MIT)
 // Copyright (c) 2013 Juraj Kirchheim
@@ -73,7 +73,8 @@ class MacroTools {
 		};
 
 	static var idlParse = ~/\$\{([\w]+)_IDL_DIR\}\/([\w]+)\.idl/i;
-	public macro static function buildHXCPPIDLType(idlRelPath:String, ?includeFlag : Bool) :Array<Field> {
+
+	public macro static function buildHXCPPIDLType(idlRelPath:String, ?includeFlag:Bool):Array<Field> {
 		var ct = Context.getLocalClass().get();
 
 		var current_file = Context.getPosInfos(Context.currentPos()).file;
@@ -86,11 +87,11 @@ class MacroTools {
 		var IDL_NAME_UPPER = module.toUpperCase();
 		var xmlFileName = '${module}.xml';
 
-		if (idlParse.match(idlRelPath)) { 
+		if (idlParse.match(idlRelPath)) {
 			IDL_NAME_UPPER = idlParse.matched(1).toUpperCase();
-			var idlFileName = idlParse.matched(2);		
-			xmlFileName = '${idlFileName}.xml';	
-//			trace('IDL_NAME_UPPER: ${IDL_NAME_UPPER} idlFileName: ${idlFileName} xmlFileName: ${xmlFileName}');
+			var idlFileName = idlParse.matched(2);
+			xmlFileName = '${idlFileName}.xml';
+			//			trace('IDL_NAME_UPPER: ${IDL_NAME_UPPER} idlFileName: ${idlFileName} xmlFileName: ${xmlFileName}');
 		}
 
 		var buildMeta = {name: ":buildXml", params: [asConstExpr('<include name=\"${dir}/${xmlFileName}\"/>', Context.currentPos())], pos: ct.pos};
@@ -98,64 +99,143 @@ class MacroTools {
 
 		var moduleDefine = '${module.toUpperCase()}_IDL_DIR';
 
-		
-
 		ma.add(buildMeta.name, buildMeta.params, buildMeta.pos);
 		if (includeFlag == null || includeFlag)
-			ma.add(include.name, include.params, include.pos);		
-		//ma.add({name: ":native", params: [asConstExpr("SampleA"), asConstExpr("SampleA")], pos: Context.currentPos()});
+			ma.add(include.name, include.params, include.pos);
+		// ma.add({name: ":native", params: [asConstExpr("SampleA"), asConstExpr("SampleA")], pos: Context.currentPos()});
 		var check = ma.get();
 
-		for (m in check) {
-			//trace('Checking ${m}');
+		for (m in ma.get()) {
+			trace('Meta: ${m.name} ${m.params} ${m.pos}');
 		}
-//		trace('\n\n\n');
+		for (m in check) {
+			// trace('Checking ${m}');
+		}
+		//		trace('\n\n\n');
 		return null;
 	}
-#if macro
+
+	#if macro
 	public static function hxcppInit(idlRelPath:String) {
 		var file = null;
 		var pos = Context.currentPos();
-		var idlAbsPath : String = try {
+		var idlAbsPath:String = try {
 			Context.resolvePath(idlRelPath);
-		} catch( e : Dynamic ) {
-			Context.error("" + e,Context.makePosition({min:0, max:0, file: "MacroTools"}) );
+		} catch (e:Dynamic) {
+			Context.error("" + e, Context.makePosition({min: 0, max: 0, file: "MacroTools"}));
 			null;
 		}
 
 		idlAbsPath = sys.FileSystem.absolutePath(idlAbsPath);
 
-		
 		var idlAbsDir = haxe.io.Path.directory(idlAbsPath);
-		
+
 		var moduleName = idlRelPath.split('/').pop().split('.').shift();
 		var moduleDefine = '${moduleName.toUpperCase()}_IDL_DIR';
 
 		var libDirDef = '${moduleName.toUpperCase()}_LIB_DIR';
 		if (!Context.defined(libDirDef)) {
-			if (Context.defined("IDL_DEBUG")) 
+			if (Context.defined("IDL_DEBUG"))
 				Compiler.define(libDirDef, idlAbsDir + "/../../lib/debug");
 			else
 				Compiler.define(libDirDef, idlAbsDir + "/../../lib/release");
 			trace('${libDirDef}= ${Context.definedValue(libDirDef)}');
 		}
 		if (!Context.defined(moduleDefine)) {
-//			trace('Defining ${moduleDefine} as ${idlAbsDir}');
+			//			trace('Defining ${moduleDefine} as ${idlAbsDir}');
 			Compiler.define(moduleDefine, idlAbsDir);
 		}
+	}
+
+	public static function idlInit(moduleName:String) {
+
+		var lcModuleName = moduleName.toLowerCase();
+		var moduleNameCamel = moduleName.charAt(0).toUpperCase() + moduleName.substr(1);
+
+		var variations = [
+			'${moduleName}.idl',
+			'${moduleName}/${moduleName}.idl',
+			'${moduleNameCamel}.idl',
+			'${moduleNameCamel}/${moduleNameCamel}.idl',
+			'${moduleNameCamel}.idl',
+			'${moduleNameCamel}/${moduleNameCamel}.idl',
+		];
+
+		function guessPath(prefix:String, resolve = true) {
+			for (shortpath in variations) {
+				var path = prefix != null && prefix.length > 0 ? prefix + '/' + shortpath : shortpath;
+				path = path.replace("//", "/");
+//				trace('Checking path: ${path}');
+				if (sys.FileSystem.exists(path)) {
+					var absPath = sys.FileSystem.absolutePath(path);
+					return absPath;
+				}
+
+				var absPath = sys.FileSystem.absolutePath(path);
+				if (sys.FileSystem.exists(absPath)) {
+					return absPath;
+				}
+				if (resolve) {
+					var resolvedPath:String = try {
+						Context.resolvePath(path);
+					} catch (e:Dynamic) {
+						//Context.error("Huh?" + e, Context.makePosition({min: 0, max: 0, file: "MacroTools"}));
+						null;
+					}
+					if (resolvedPath != null) {
+						return sys.FileSystem.absolutePath(resolvedPath);
+					}
+				}
+			}
+			return null;
+		}
+
+		// try it as it is
+		var idlAbsPath = guessPath(null, true);
+		if (idlAbsPath == null) {
+			var classPaths = Context.getClassPath();
+			for (cp in classPaths) {
+				idlAbsPath = guessPath(cp, false);
+				if (idlAbsPath != null) {
+					break;
+				}
+			}
+		}
+		if (idlAbsPath == null) {
+			Context.fatalError('Could not find IDL file for module "${moduleName}"', Context.makePosition({min: 0, max: 0, file: "MacroTools"}));
+			return;
+		}
+		idlAbsPath = sys.FileSystem.absolutePath(idlAbsPath);
+		var idlAbsDir = haxe.io.Path.directory(idlAbsPath);
+		var moduleDefine = '${moduleName.toUpperCase()}_IDL_DIR';
+
+		var libDirDef = '${moduleName.toUpperCase()}_LIB_DIR';
+		if (!Context.defined(libDirDef)) {
+			if (Context.defined("IDL_DEBUG"))
+				Compiler.define(libDirDef, idlAbsDir + "/../../lib/debug");
+			else
+				Compiler.define(libDirDef, idlAbsDir + "/../../lib/release");
+			trace('${libDirDef}= ${Context.definedValue(libDirDef)}');
+		}
+		if (!Context.defined(moduleDefine)) {
+			//			trace('Defining ${moduleDefine} as ${idlAbsDir}');
+			Compiler.define(moduleDefine, idlAbsDir);
+		}
+
+		trace('Done');
 	}
 	#end
 
 	public static function asMacroPos(pos:idl.Data.Position):haxe.macro.Expr.Position {
 		if (pos == null)
-			return Context.makePosition({file: "null", min: 0, max: 0 });
+			return Context.makePosition({file: "null", min: 0, max: 0});
 		return Context.makePosition({min: pos.pos, max: pos.pos + 1, file: pos.file});
 	}
 
-	public static function asPublicFunctionField(expr : Expr, name:String, args:Array<FunctionArg>, ret:ComplexType, pos:haxe.macro.Expr.Position):Field {
+	public static function asPublicFunctionField(expr:Expr, name:String, args:Array<FunctionArg>, ret:ComplexType, pos:haxe.macro.Expr.Position):Field {
 		return {
 			name: name,
-			kind: FFun({args:args, ret:ret, expr:expr}),
+			kind: FFun({args: args, ret: ret, expr: expr}),
 			pos: pos,
 			access: [APublic]
 		};
@@ -166,7 +246,6 @@ class MacroTools {
 	}
 
 	public static function asPrivateAccessExpr(expr:Expr, pos:haxe.macro.Expr.Position):Expr {
-		return at(EMeta( {name:":privateAccess", pos:pos}, expr), pos);
+		return at(EMeta({name: ":privateAccess", pos: pos}, expr), pos);
 	}
 }
-

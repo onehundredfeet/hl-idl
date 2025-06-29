@@ -587,7 +587,7 @@ class CMakeGenerateHXCPP {
 					continue;
 				if (e.nodeName == 'files') {
 					if (!allowedFileIDs.contains(e.get('id'))) {
-//						trace('SKIPPING files element with ID: ${e.get('id')} - not in allowed list');
+						//						trace('SKIPPING files element with ID: ${e.get('id')} - not in allowed list');
 						continue;
 					}
 				}
@@ -611,7 +611,7 @@ class CMakeGenerateHXCPP {
 			var defineName = resolveString(x.get('name'));
 			var value = resolveString(x.get('value'));
 			if (!_defines.exists(defineName)) {
-//				trace('Setting define: ${defineName} = ${value}');
+				//				trace('Setting define: ${defineName} = ${value}');
 				_defines.set(defineName, value);
 			} else {
 				trace('Warning - define ${defineName} already exists with value ${_defines.get(defineName)}');
@@ -632,7 +632,7 @@ class CMakeGenerateHXCPP {
 					var defineName = resolveString(x.get('name'));
 					var value = resolveString(x.get('value'));
 					if (!_defines.exists(defineName)) {
-//						trace('Setting define: ${defineName} = ${value}');
+						//						trace('Setting define: ${defineName} = ${value}');
 						_defines.set(defineName, value);
 						changed = true;
 						anyChange = true;
@@ -684,7 +684,7 @@ class CMakeGenerateHXCPP {
 					}
 
 					if (included.contains(fileName.toLowerCase())) {
-//						trace('Skipping already included file: ${fileName}');
+						//						trace('Skipping already included file: ${fileName}');
 						return false;
 					}
 
@@ -731,6 +731,13 @@ class CMakeGenerateHXCPP {
 		});
 
 		return haxeTargets;
+	}
+
+	static function libPackageName(n:String) {
+		if (n.contains('::')) {
+			return n.split('::')[0];
+		}
+		return n;
 	}
 
 	public static function main() {
@@ -963,13 +970,12 @@ class CMakeGenerateHXCPP {
 			return true;
 		});
 
-
 		function addFlag(n:Xml) {
 			var libname = n.parent.get('__library');
 			if (libname == null || n.get('_xml_path') != n.parent.get('_xml_path')) {
 				libname = 'haxe';
 			} else {
-//				trace('flag is unique to library: ${libname} - ${n}');
+				//				trace('flag is unique to library: ${libname} - ${n}');
 			}
 
 			var value = resolveString(n.get("value"));
@@ -1092,7 +1098,8 @@ class CMakeGenerateHXCPP {
 		for (t in cppDefines.keys()) {
 			trace('Defines for ${t}: ${cppDefines.get(t).join(',')}');
 		}
-		trace('findLibs : ${findLibs.map((l) -> '${l.name} (${l.dir})').join(', ')}');
+
+		trace('findLibs : ${findLibs.map((l) -> '${libPackageName(l.name)} (${l.dir})').join(', ')}');
 		#end
 
 		var outputName = resolveString("${HAXE_OUTPUT}", true);
@@ -1131,8 +1138,9 @@ class CMakeGenerateHXCPP {
 		if (findLibs.length > 0) {
 			addLine('');
 			for (fl in findLibs) {
+				var packageName = libPackageName(fl.name);
 				if (fl.dir == null) {
-					addLine('find_package(${fl.name} REQUIRED)');
+					addLine('find_package(${packageName} REQUIRED)');
 				} else {
 					var rdir = resolvePath(fl.dir);
 					if (rdir == null) {
@@ -1144,10 +1152,10 @@ class CMakeGenerateHXCPP {
 						cppLibDirs.push(adir);
 					} else {
 						#if (cmake_idl_verbose > 1)
-						trace('Adding findlib: ${fl.name} at ${fl.dir}');
+						trace('Adding findlib: ${packageName} at ${fl.dir}');
 						#end
-						addLine('set (${fl.name}_DIR ${adir})');
-						addLine('find_package(${fl.name} REQUIRED)');
+						addLine('set (${packageName}_DIR ${adir})');
+						addLine('find_package(${packageName} REQUIRED)');
 					}
 				}
 			}
@@ -1159,7 +1167,11 @@ class CMakeGenerateHXCPP {
 					if (fl.raw) {
 						addLine('\t${fl.name}');
 					} else {
-						addLine('\t${fl.name}::${fl.name}');
+						if (fl.name.contains('::')) {
+							addLine('\t${fl.name}');
+						} else {
+							addLine('\t${fl.name}::${fl.name}');
+						}
 					}
 				}
 			}

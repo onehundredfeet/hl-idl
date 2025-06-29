@@ -351,7 +351,7 @@ abstract class HaxeGenerationTarget {
 		return t;
 	}
 
-	public function addSimpleMethod(f, iname, haxeName, args, ret, p) {
+	public function addSimpleMethod(f, ikind : InterfaceKind, attrs : Array<Attrib>, iname, haxeName, args, ret, p) {
 		return [makeNativeField(iname, haxeName, f, args, ret, true)];	
 	}
 	public function addInterfaceMethod(f:idl.Data.Field, iname:String, haxeName:String, variants: Array<MethodVariant>, p:Position):Array<haxe.macro.Expr.Field> {

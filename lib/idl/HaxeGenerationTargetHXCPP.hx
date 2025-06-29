@@ -24,12 +24,13 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 			p:haxe.macro.Expr.Position):Array<MetadataEntry> {
 		for (a in attrs) {
 			switch (a) {
-				case AInternal(iname):
-					var nativeMeta:MetadataEntry = {name: ":native", params: [iname.asConstExpr()], pos: p};
+				case AInternal(internalName):
+					var nativeMeta:MetadataEntry = {name: ":native", params: [internalName.asConstExpr()], pos: p};
 					return [nativeMeta];
 				default:
 			}
 		}
+
 		return null;
 	}
 
@@ -219,7 +220,7 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 	// 	// return [x];
 	// }
 	// dispatch only on args count
-	function makeSimpleCall(self:Bool, iname:String, haxeName:String, args:Array<FArg>, ret:TypeAttr, p):Expr {
+	function makeSimpleCall(self:Bool, ikind:InterfaceKind, iname:String, haxeName:String, args:Array<FArg>, ret:TypeAttr, p):Expr {
 		var ident = (haxeName).asFieldAccess(p);
 
 		var typical_args = [
@@ -227,7 +228,16 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 				{expr: ECast({expr: EConst(CIdent(args[i].name)), pos: p}, null), pos: p}
 		];
 
-		var thisExpr = macro asPtr();
+		// var isStatic = false;
+		// for (a in ret.attr) {
+		// 	switch (a) {
+		// 		case AStatic:
+		// 			isStatic = true;
+		// 		default:
+		// 	}
+		// }
+
+		var thisExpr = ikind.match(IKAbstract(_)) ? macro this : macro asPtr();
 		// EConst(CIdent("this"))
 		var e:Expr = {
 			expr: ECall(ident, (self ? [{expr: thisExpr.expr, pos: p}] : []).concat(typical_args)),
@@ -239,9 +249,20 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 		return e;
 	}
 
-	public override function addSimpleMethod(f, iname, haxeName, args, ret:TypeAttr, p):Array<haxe.macro.Expr.Field> {
+	public override function addSimpleMethod(f, ikind:InterfaceKind, attrs:Array<Attrib>, iname, haxeName, args, ret:TypeAttr, p):Array<haxe.macro.Expr.Field> {
 		var isCStyleCall = false;
 		var isStatic = false;
+		var isAbstract = ikind.match(IKAbstract(_));
+		var methodNativeName = haxeName;
+		var interfaceNativeName = iname;
+
+		for (a in attrs) {
+			switch (a) {
+				case AInternal(name):
+					interfaceNativeName = name;
+				default:
+			}
+		}
 
 		for (a in ret.attr) {
 			switch (a) {
@@ -249,10 +270,14 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 					isStatic = true;
 				case ACObject:
 					isCStyleCall = true;
+				case AInternal(name):
+					methodNativeName = name;
+				// var nativeMeta:MetadataEntry = {name: ":native", params: [name.asConstExpr()], pos: p};
+				// return [nativeMeta];
 				default:
 			}
 		}
-		if (!isCStyleCall) {
+		if (!isCStyleCall && !isAbstract) {
 			return [makeNativeField(iname, haxeName, f, args, ret, true)];
 		}
 
@@ -288,14 +313,28 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 			}
 		];
 
-		var redirect_args:Array<FunctionArg> = [{name: "This", type: makeType({t: TPointer(TCustom(iname)), attr: []}, false)}].concat(typical_args);
+		var redirect_args:Array<FunctionArg> = (isStatic ? [] : [
+			isAbstract ? {
+				name: "This",
+				type: makeType({t: TCustom(iname), attr: []}, false)
+			} : {name: "This", type: makeType({t: TPointer(TCustom(iname)), attr: []}, false)}
+		]).concat(typical_args);
 
 		var blank_expr = if (ret.t == TVoid) {expr: EBlock([]), pos: p}; else {expr: EReturn(defVal(ret)), pos: p};
 
+		var redirectMeta = makeNativeMeta(iname, null, name, args.length, ret.attr, p);
+		if (redirectMeta == null) {
+			if (isAbstract) {
+				redirectMeta = [
+					{name: ":native", params: [(isAbstract ? interfaceNativeName + "::" + methodNativeName : methodNativeName).asConstExpr()], pos: p}
+				];
+			}
+		}
+		
 		var redirect_field = {
 			pos: p,
 			name: redirectName,
-			meta: makeNativeMeta(iname, null, name, args.length, ret.attr, p),
+			meta: redirectMeta,
 			access: getFieldAccess(true, false),
 			kind: externalFunction(null, redirect_args, makeType(ret, true), blank_expr),
 		};
@@ -308,7 +347,7 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 			name: name,
 			meta: null,
 			access: getFieldAccess(isConstr || isStatic, true, true),
-			kind: embeddedFunction(typical_args, makeType(ret, true), makeStubs ? makeSimpleCall(true, iname, redirectName, args, ret, p) : null),
+			kind: embeddedFunction(typical_args, makeType(ret, true), makeStubs ? makeSimpleCall(!isStatic, ikind, iname, redirectName, args, ret, p) : null),
 		};
 
 		return [redirect_field, x];
@@ -440,7 +479,7 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 				default:
 			}
 
-//		trace('Interface ${ikind} ${iname}');
+		//		trace('Interface ${ikind} ${iname}');
 		if (isObject) {
 			for (df in dfields) {
 				if (df.name == "new") {
@@ -566,7 +605,6 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 				};
 				objFields.push(arrayAlloc);
 			}
-			
 		}
 
 		var coreClassFields = isObject ? dfields.concat(objFields) : dfields;
@@ -600,7 +638,7 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 			var redirects = dfields.filter(x -> x.name.startsWith(REDIRECT_PREFIX)).map(x -> x.name.substring(REDIRECT_PREFIX.length));
 
 			var passthrough = dfields.filter(x -> !x.name.startsWith(REDIRECT_PREFIX)).filter(x -> {
-				switch(x.kind) {
+				switch (x.kind) {
 					case FFun(f):
 						if (!redirects.contains(x.name)) {
 							return true;
@@ -610,7 +648,7 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 				return false;
 			}).map(x -> x.name);
 
-			//trace('redirects ${redirects}');
+			// trace('redirects ${redirects}');
 			// var stubs = dfields.filter(x -> redirects.contains(x.name));
 			// var ptrRedirects = stubs;
 			var ptrRedirects = dfields.filter(x -> redirects.contains(x.name)).map(x -> {
@@ -640,7 +678,7 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 
 				var callExpr = (fullProxyName + "." + REDIRECT_PREFIX + y.name).asFieldAccess(p);
 
-				trace('ptrRedirects ${x.name} ${printer.printExpr(callExpr)}');
+				//				trace('ptrRedirects ${x.name} ${printer.printExpr(callExpr)}');
 				yfun.expr = switch (callInfo.ret) {
 					case true:
 						{expr: EReturn({expr: ECall(callExpr, params), pos: p}), pos: p};
@@ -661,9 +699,9 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 				var y:Field = Reflect.copy(x);
 				y.access = Reflect.copy(y.access);
 				y.access.push(AInline);
-				y.access = y.access.filter(a ->a != AExtern);
+				y.access = y.access.filter(a -> a != AExtern);
 				var yfun = Reflect.copy(fun);
-				var hasRet = switch(fun.ret) {
+				var hasRet = switch (fun.ret) {
 					case TPath(p):
 						if (p.pack.length == 0 && p.name == "Void") {
 							false;
@@ -674,16 +712,15 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 						true;
 				};
 
-				//trace('ptrRedirects passthrough ${x.name} hasRet ${hasRet}');
+				// trace('ptrRedirects passthrough ${x.name} hasRet ${hasRet}');
 				var params = yfun.args == null ? [] : yfun.args.map(arg -> arg.name.asIdentExpr(p));
-//				trace('params ${params}');
+				//				trace('params ${params}');
 				var selfThis = x.access.contains(AStatic) ? fullProxyName + "." : "this.ref.";
 				var ecall = ECall((selfThis + x.name).asFieldAccess(p), params).at(p);
 
-//				trace('ecall ${printer.printExpr(ecall)}');
-				
+				//				trace('ecall ${printer.printExpr(ecall)}');
 
-				yfun.expr = hasRet ?  EReturn( ecall ).at(p) : ecall;
+				yfun.expr = hasRet ? EReturn(ecall).at(p) : ecall;
 
 				y.kind = FFun(yfun);
 				y;
@@ -712,7 +749,7 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 					expr: macro return cpp.Pointer.addressOf(self)
 				}),
 			};
-//			trace('object fields - ptrRedirects ${ptrRedirects.length}');
+			//			trace('object fields - ptrRedirects ${ptrRedirects.length}');
 			var ptrFields = statics.concat(staticNew != null ? [staticNew, staticDelete] : []).concat(ptrRedirects).concat([asPtrFieldPtrClass, fromCast]);
 			var ptrDefn = {
 				pos: p,
@@ -799,17 +836,17 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 				fields: [],
 			};
 
-
 			var arrayDataDefn = macro class $arrayDataName {
 				var _backing:Array<cpp.UInt8>;
 				var _ptr:cpp.RawPointer<$proxyCT>;
 				var _count:Int = 0;
 				var _size:Int = 0;
 				var _capacity:Int = 0;
+
 				public function new(capacity:Int = 32) {
 					_capacity = capacity;
 					_size = cpp.Native.sizeof($i{proxyName});
-					
+
 					_backing = new Array<cpp.UInt8>();
 					_backing.resize(_capacity * _size);
 					_ptr = cast cpp.Pointer.ofArray(_backing).raw;
@@ -817,9 +854,11 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 				}
 
 				public var length(get, never):Int;
+
 				inline function get_length():Int {
 					return _count;
 				}
+
 				public inline function asPtr():cpp.Pointer<$proxyCT> {
 					return cpp.Pointer.fromRaw(_ptr);
 				}
@@ -832,7 +871,7 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 					_count = newSize;
 				}
 
-				public inline function push( value:$proxyCT):Void {
+				public inline function push(value:$proxyCT):Void {
 					if (_count == _capacity) {
 						var oldCapacity = _capacity;
 						var newCapacity = _capacity * 2;
@@ -843,7 +882,7 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 					_ptr[_count++] = value;
 				}
 			};
-			
+
 			// var arrayDataDefn = {
 			// 	pos: p,
 			// 	pack: pack,
@@ -858,7 +897,8 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 				public function new(capacity:Int = 32) {
 					this = new $arrayDataCP(capacity);
 				}
-				@:op([]) public inline function arrayRead(index:Int) : $proxyCT{
+
+				@:op([]) public inline function arrayRead(index:Int):$proxyCT {
 					if (index < 0 || index >= @:privateAccess this._count) {
 						throw "Array index out of bounds";
 					}
@@ -866,7 +906,7 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 				}
 
 				@:op([]) public inline function arrayWrite(index:Int, value:$proxyCT) {
-					if (index < 0 || index >= @:privateAccess  this._count) {
+					if (index < 0 || index >= @:privateAccess this._count) {
 						throw "Array index out of bounds";
 					}
 					return @:privateAccess this._ptr[index] = value;
@@ -883,7 +923,6 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 				fields: arrayProxyClass.fields,
 			}
 
-			
 			/*
 
 				@:generic
@@ -1035,13 +1074,25 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 		var attribs = attribsFromField(f);
 
 		var intName = null;
+		// 		var getter:String = null;
+		var setter:String = null;
+		// var setCast:String = null;
+		// var getCast:String = "";
+
 		for (a in attribs) {
 			switch (a) {
 				case AInternal(name):
 					intName = name;
+				// case AGet(name): getter = name;
+				case ASet(name):
+					setter = name;
+				// case ASetCast(type): setCast = type;
+				// case AGetCast(type): getCast = "(" + type + ")";
+
 				default:
 			}
 		}
+
 		switch (t.t) {
 			case TArray(at, sizeField):
 				throw "Unsupported array type. Sorry";
@@ -1050,13 +1101,44 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 				var tt = makeType(t, false);
 
 				// if (hasSet && !embed) {
+
+				var setKind = setter != null ? "set" : "default";
+				var getKind = "default";
+
+				var fkind = setter != null ? FProp(getKind, setKind, tt) : FVar(tt);
+
 				attribFields.push({
 					pos: p,
 					name: haxeName,
 					meta: intName == null ? [] : [{name: ":native", params: [intName.asConstExpr()], pos: p}],
-					kind: FVar(tt),
+					kind: fkind,
 					access: [APublic],
 				});
+
+				//
+				if (setter != null) {
+					attribFields.push({
+						pos: p,
+						name: "set_" + haxeName,
+						meta: [{name: ":native", params: [(setter).asConstExpr()], pos: p}],
+						access: [],
+						kind: externalFunction(null, [
+							{
+								name: "_v",
+								type: tt
+							}
+						], tt, macro return ${defVal(t)})
+					});
+				}
+
+				// 				public function externalFunction(attribs:Array<Attrib>, args:Array<FunctionArg>, ret:ComplexType = null, expr:Expr = null):FieldType {
+				// 	return FFun({
+				// 		ret: ret,
+				// 		expr: needsStubs(attribs) ? expr : null,
+				// 		args: args,
+				// 	});
+				// }
+
 				// } else {
 				// 	var fkind = hasSet ? FProp("get", "set", tt) : FProp("get", "never", tt);
 				// 	attribFields.push({

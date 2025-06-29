@@ -216,7 +216,7 @@ class HaxeGenerate {
 								fields = _currentTarget.makeConstructor(f, iname, haxeName, vars, p);
 							}
 							else if (vars.length == 1) {
-								fields = _currentTarget.addSimpleMethod(f, iname, haxeName, vars[0].args, vars[0].ret, p);
+								fields = _currentTarget.addSimpleMethod(f, ikind, attrs,iname, haxeName, vars[0].args, vars[0].ret, p);
 							}else {
 								trace("Multiple variants for " + f.name + 'but is constr ${isConstr}');
 								fields = _currentTarget.addInterfaceMethod(f, iname, haxeName,vars, p);
