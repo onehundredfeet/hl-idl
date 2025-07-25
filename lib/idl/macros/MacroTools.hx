@@ -105,12 +105,12 @@ class MacroTools {
 		// ma.add({name: ":native", params: [asConstExpr("SampleA"), asConstExpr("SampleA")], pos: Context.currentPos()});
 		var check = ma.get();
 
-		for (m in ma.get()) {
-			trace('Meta: ${m.name} ${m.params} ${m.pos}');
-		}
-		for (m in check) {
-			// trace('Checking ${m}');
-		}
+		// for (m in ma.get()) {
+		// 	trace('Meta: ${m.name} ${m.params} ${m.pos}');
+		// }
+		// for (m in check) {
+		// 	// trace('Checking ${m}');
+		// }
 		//		trace('\n\n\n');
 		return null;
 	}

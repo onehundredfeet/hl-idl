@@ -28,7 +28,8 @@ class HaxeGenerate {
 		this.opts = opts;
 		_targets = targets != null ? targets : [
 			new HaxeGenerationTargetHL(opts, _typeInfos),
-			new HaxeGenerationTargetHXCPP(opts, _typeInfos)
+			new HaxeGenerationTargetHXCPP(opts, _typeInfos),
+			new HaxeGenerationTargetMacro(opts, _typeInfos)
 		];
 	}
 
