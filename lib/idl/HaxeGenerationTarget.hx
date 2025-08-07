@@ -27,6 +27,10 @@ abstract class HaxeGenerationTarget {
 	var defaultPos:haxe.macro.Expr.Position = {file: "unknown", min: 0, max: 0};
 	var _pack:Array<String>;
 
+	static final PROXY_NEW_NAME = "alloc";
+	static final PROXY_DELETE_NAME = "free";
+	static final PROXY_STRUCT_MAKE = "make";
+
 	public function new(opts:Options, typeInfos:Map<String, HaxeGenerationTypeInfo>) {
 		this.opts = opts;
 		_pack = opts.packageName.split(".");

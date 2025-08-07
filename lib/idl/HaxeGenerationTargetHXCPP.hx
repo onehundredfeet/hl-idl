@@ -11,9 +11,7 @@ using idl.macros.MacroTools;
 import idl.HaxeGenerationTarget;
 
 class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
-	static final PROXY_NEW_NAME = "alloc";
-	static final PROXY_DELETE_NAME = "free";
-	static final PROXY_STRUCT_MAKE = "make";
+
 	static final REDIRECT_PREFIX = "_r_";
 
 	function getTargetCondition():String {
@@ -415,7 +413,7 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 		return {name: ":build", params: [getMacroBuilderExpr()], pos: p};
 	}
 
-	public function getInterfaceTypeDefinitions(iname:String, attrs:Array<Attrib>, pack:Array<String>, dfields:Array<Field>, ikind:InterfaceKind,
+	public function getInterfaceTypeDefinitions(iname:String, attrs:Array<Attrib>, pack:Array<String>, dfields:Array<haxe.macro.Expr.Field>, ikind:InterfaceKind,
 			p:Position):Array<TypeDefinition> {
 		var abstractNewField:Field = null;
 		var staticNew:Field = null;
@@ -511,7 +509,7 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 
 		if (staticNew != null) {
 			dfields.remove(staticNew);
-			staticNew.name = staticNew.name = PROXY_NEW_NAME;
+			staticNew.name = staticNew.name = HaxeGenerationTarget.PROXY_NEW_NAME;
 			staticNew.access = [APublic, AStatic, AExtern];
 			var newMeta:MetadataEntry = {name: ":native", params: ['new ${intName}'.asConstExpr()], pos: p};
 			if (staticNew.meta == null) {
@@ -531,7 +529,7 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 
 			staticDelete = {
 				pos: p,
-				name: PROXY_DELETE_NAME,
+				name: HaxeGenerationTarget.PROXY_DELETE_NAME,
 				meta: [{name: ":native", params: ['delete '.asConstExpr()], pos: p}],
 				access: [APublic, AExtern],
 				kind: FFun({args: [], ret: macro :Void, expr: null}),
@@ -581,7 +579,7 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 			if (hasNew) {
 				var structMake = {
 					pos: p,
-					name: PROXY_STRUCT_MAKE,
+					name: HaxeGenerationTarget.PROXY_STRUCT_MAKE,
 					meta: [{name: ":native", params: [${intName}.asConstExpr()], pos: p}],
 					access: [APublic, AStatic],
 					kind: FFun({args: newArgs, ret: fullProxyName.asComplexType(), expr: null}), // macro {return null;}
@@ -629,7 +627,7 @@ class HaxeGenerationTargetHXCPP extends HaxeGenerationTarget {
 
 		// ECall(EField(EConst(CIdent(name)).at(p), "fromIndex").at(p), [EConst(CInt("0")).at(p)]).at(p); // { expr : , pos : p };
 
-		var fullConstructPath = fullProxyName + "." + PROXY_NEW_NAME;
+		var fullConstructPath = fullProxyName + "." + HaxeGenerationTarget.PROXY_NEW_NAME;
 		var proxyConstructExpr = fullConstructPath.asFieldAccess().asCallExpr([], p).asPrivateAccessExpr(p);
 		var newWrapper = (macro this = $proxyConstructExpr).asPublicFunctionField("alloc", [], fullPtrCT, p);
 
